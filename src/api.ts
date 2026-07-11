@@ -80,6 +80,38 @@ export async function fetchMissedAppointments() {
   return (await api.get<Appointment[]>('/api/reports/missed-appointments')).data;
 }
 
+export async function downloadReportCsv(path: string, fileName: string) {
+  const response = await api.get<Blob>(path, { responseType: 'blob' });
+  const downloadUrl = window.URL.createObjectURL(response.data);
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
+export async function exportCoverageCsv() {
+  await downloadReportCsv('/api/reports/immunization-coverage/export', 'immunization-coverage.csv');
+}
+
+export async function exportMissedAppointmentsCsv() {
+  await downloadReportCsv('/api/reports/missed-appointments/export', 'missed-appointments.csv');
+}
+
+export async function exportSmsDeliveryCsv() {
+  await downloadReportCsv('/api/reports/sms-delivery/export', 'sms-delivery.csv');
+}
+
+export async function exportSyncReliabilityCsv() {
+  await downloadReportCsv('/api/reports/sync-reliability/export', 'sync-reliability.csv');
+}
+
+export async function exportFacilityPerformanceCsv() {
+  await downloadReportCsv('/api/reports/facility-performance/export', 'facility-performance.csv');
+}
+
 export async function fetchFacilities() {
   return (await api.get<Paged<Facility>>('/api/facilities', { params: { pageSize: 200 } })).data.items;
 }

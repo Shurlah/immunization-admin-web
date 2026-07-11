@@ -207,6 +207,13 @@ header p { margin: 8px 0 0; }
   align-items: end;
   justify-content: start;
 }
+
+.report-actions {
+  grid-template-columns: repeat(auto-fit, minmax(220px, max-content));
+  align-items: center;
+  justify-content: start;
+}
+
 .filters {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

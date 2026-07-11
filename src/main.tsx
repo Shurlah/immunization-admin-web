@@ -6,6 +6,7 @@ import {
   Building2,
   CalendarDays,
   Database,
+  Download,
   FileClock,
   LogOut,
   Plus,
@@ -28,6 +29,11 @@ import {
   createVaccine,
   disableUser,
   disableVaccine,
+  exportCoverageCsv,
+  exportFacilityPerformanceCsv,
+  exportMissedAppointmentsCsv,
+  exportSmsDeliveryCsv,
+  exportSyncReliabilityCsv,
   fetchAppointments,
   fetchAuditLogs,
   fetchChildren,
@@ -128,8 +134,8 @@ function LoginScreen({ onLogin }: { onLogin: (session: AuthSession) => void }) {
     setError('');
     try {
       onLogin(await login(email, password));
-    } catch {
-      setError('Login failed. Use a valid backend user account.');
+    } catch (error) {
+      setError(messageFrom(error));
     }
   }
 
@@ -467,19 +473,38 @@ function ReportsView() {
   const [sms, setSms] = useState<SmsDelivery | null>(null);
   const [sync, setSync] = useState<SyncReliability | null>(null);
   const [performance, setPerformance] = useState<FacilityPerformance[]>([]);
+  const [notice, setNotice] = useState<Notice>(null);
   useEffect(() => {
     void Promise.all([fetchCoverage(), fetchMissedAppointments(), fetchSmsDelivery(), fetchSyncReliability(), fetchFacilityPerformance()])
       .then(([a, b, c, d, e]) => { setCoverage(a); setMissed(b); setSms(c); setSync(d); setPerformance(e); });
   }, []);
+
+  async function exportCsv(action: () => Promise<void>, successMessage: string) {
+    try {
+      await action();
+      setNotice({ tone: 'ok', text: successMessage });
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
+  }
+
   return (
     <>
       <Header title="Reports" subtitle="Coverage, missed appointments, SMS delivery, sync reliability, and facility performance" />
+      <NoticeBox notice={notice} />
       <div className="metric-grid">
         <Metric icon={<Users />} label="Children" value={coverage?.registeredChildren ?? 0} />
         <Metric icon={<Bell />} label="Missed appointments" value={missed.length} tone="alert" />
         <Metric icon={<Send />} label="SMS delivered" value={sms?.delivered ?? 0} />
         <Metric icon={<Database />} label="Latest server version" value={sync?.latestServerVersion ?? 0} />
       </div>
+      <section className="work-panel report-actions">
+        <button onClick={() => void exportCsv(exportCoverageCsv, 'Coverage report download started.')}><Download size={16} />Coverage CSV</button>
+        <button onClick={() => void exportCsv(exportMissedAppointmentsCsv, 'Missed appointments export started.')}><Download size={16} />Missed appointments CSV</button>
+        <button onClick={() => void exportCsv(exportSmsDeliveryCsv, 'SMS delivery export started.')}><Download size={16} />SMS delivery CSV</button>
+        <button onClick={() => void exportCsv(exportSyncReliabilityCsv, 'Sync reliability export started.')}><Download size={16} />Sync reliability CSV</button>
+        <button onClick={() => void exportCsv(exportFacilityPerformanceCsv, 'Facility performance export started.')}><Download size={16} />Facility performance CSV</button>
+      </section>
       <DataTable title="Missed appointments" columns={['Date', 'Child ID', 'Dose', 'Facility']} rows={missed.map(item => [item.appointmentDate, item.childId, item.doseName, item.facilityId])} />
       <DataTable title="Facility performance" columns={['Facility', 'Children', 'Immunizations', 'Missed']} rows={performance.map(item => [item.name, item.children, item.immunizations, item.missedAppointments])} />
     </>
@@ -685,8 +710,11 @@ function formatDateTime(value: string) {
 
 function messageFrom(error: unknown) {
   if (typeof error === 'object' && error && 'response' in error) {
-    const response = (error as { response?: { data?: { error?: { message?: string } } } }).response;
-    return response?.data?.error?.message ?? 'Request failed.';
+    const response = (error as { response?: { status?: number; data?: { error?: { message?: string } } } }).response;
+    return response?.data?.error?.message ?? `Request failed with status ${response?.status ?? 'unknown'}.`;
+  }
+  if (typeof error === 'object' && error && 'request' in error) {
+    return 'Could not reach the backend. Check VITE_API_BASE_URL and backend CORS settings.';
   }
   return 'Request failed.';
 }
