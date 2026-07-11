@@ -214,6 +214,25 @@ header p { margin: 8px 0 0; }
   justify-content: start;
 }
 
+.export-panel {
+  margin-bottom: 18px;
+}
+
+.export-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.export-header h2 {
+  margin: 0;
+}
+
+.export-filters label {
+  min-width: 0;
+}
+
 .filters {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -305,5 +324,6 @@ td { font-size: 14px; }
   header { display: grid; }
   h1 { font-size: 31px; }
   .inline-tools { grid-template-columns: 1fr; }
+  .export-header { display: grid; }
   table { min-width: 620px; }
 }

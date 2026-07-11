@@ -171,6 +171,21 @@ export async function fetchDuplicates() {
   return (await api.get<Child[]>('/api/children/duplicates')).data;
 }
 
+export async function exportChildrenCsv(params?: {
+  facilityId?: string;
+  from?: string;
+  to?: string;
+  startMonth?: string;
+  endMonth?: string;
+  startYear?: string;
+  endYear?: string;
+}) {
+  const query = Object.fromEntries(Object.entries(params ?? {}).filter(([, value]) => value));
+  const search = new URLSearchParams(query).toString();
+  const path = search ? `/api/children/export?${search}` : '/api/children/export';
+  await downloadReportCsv(path, 'children-export.csv');
+}
+
 export async function createGuardian(payload: Omit<Guardian, 'id'>) {
   return (await api.post<Guardian>('/api/guardians', payload)).data;
 }

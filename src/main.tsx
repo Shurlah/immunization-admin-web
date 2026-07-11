@@ -29,6 +29,7 @@ import {
   createVaccine,
   disableUser,
   disableVaccine,
+  exportChildrenCsv,
   exportCoverageCsv,
   exportFacilityPerformanceCsv,
   exportMissedAppointmentsCsv,
@@ -304,6 +305,8 @@ function ChildrenView({ session }: { session: AuthSession }) {
   const [query, setQuery] = useState('');
   const [phone, setPhone] = useState('');
   const [notice, setNotice] = useState<Notice>(null);
+  const [exportMode, setExportMode] = useState<'all' | 'date' | 'month' | 'year'>('all');
+  const [exportFilters, setExportFilters] = useState({ facilityId: '', from: '', to: '', startMonth: '', endMonth: '', startYear: '', endYear: '' });
   const [guardian, setGuardian] = useState({ fullName: '', phoneNumber: '', relationshipToChild: '', address: '', ward: '' });
   const [child, setChild] = useState({ firstName: '', middleName: '', lastName: '', dateOfBirth: today(), sex: 'Female', facilityId: session.facilityId ?? '' });
 
@@ -333,6 +336,25 @@ function ChildrenView({ session }: { session: AuthSession }) {
     }
   }
 
+  async function exportData() {
+    try {
+      const params = {
+        facilityId: clean(exportFilters.facilityId) ?? undefined,
+        from: exportMode === 'date' ? clean(exportFilters.from) ?? undefined : undefined,
+        to: exportMode === 'date' ? clean(exportFilters.to) ?? undefined : undefined,
+        startMonth: exportMode === 'month' ? clean(exportFilters.startMonth) ?? undefined : undefined,
+        endMonth: exportMode === 'month' ? clean(exportFilters.endMonth) ?? undefined : undefined,
+        startYear: exportMode === 'year' ? clean(exportFilters.startYear) ?? undefined : undefined,
+        endYear: exportMode === 'year' ? clean(exportFilters.endYear) ?? undefined : undefined
+      };
+
+      await exportChildrenCsv(params);
+      setNotice({ tone: 'ok', text: 'Children export download started.' });
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
+  }
+
   return (
     <>
       <Header title="Children" subtitle="Register, search, and review duplicate flags" />
@@ -353,6 +375,22 @@ function ChildrenView({ session }: { session: AuthSession }) {
         </form>
         <section>
           <div className="filters"><SearchBox value={query} onChange={setQuery} placeholder="Search child name" /><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Caregiver phone" /><button onClick={() => void search()}><Search size={16} />Search</button></div>
+          <section className="work-panel export-panel">
+            <div className="export-header">
+              <h2>Export children</h2>
+              <button onClick={() => void exportData()}><Download size={16} />Export CSV</button>
+            </div>
+            <div className="filters export-filters">
+              <label>Facility<select value={exportFilters.facilityId} onChange={e => setExportFilters({ ...exportFilters, facilityId: e.target.value })}><option value="">All facilities</option>{facilities.map(facility => <option key={facility.id} value={facility.id}>{facility.name}</option>)}</select></label>
+              <label>Mode<select value={exportMode} onChange={e => setExportMode(e.target.value as 'all' | 'date' | 'month' | 'year')}><option value="all">All data</option><option value="date">Date range</option><option value="month">Month range</option><option value="year">Year range</option></select></label>
+              {exportMode === 'date' && <label>From<input type="date" value={exportFilters.from} onChange={e => setExportFilters({ ...exportFilters, from: e.target.value })} /></label>}
+              {exportMode === 'date' && <label>To<input type="date" value={exportFilters.to} onChange={e => setExportFilters({ ...exportFilters, to: e.target.value })} /></label>}
+              {exportMode === 'month' && <label>Start month<input type="month" value={exportFilters.startMonth} onChange={e => setExportFilters({ ...exportFilters, startMonth: e.target.value })} /></label>}
+              {exportMode === 'month' && <label>End month<input type="month" value={exportFilters.endMonth} onChange={e => setExportFilters({ ...exportFilters, endMonth: e.target.value })} /></label>}
+              {exportMode === 'year' && <label>Start year<input type="number" min="1" step="1" value={exportFilters.startYear} onChange={e => setExportFilters({ ...exportFilters, startYear: e.target.value })} placeholder="2025" /></label>}
+              {exportMode === 'year' && <label>End year<input type="number" min="1" step="1" value={exportFilters.endYear} onChange={e => setExportFilters({ ...exportFilters, endYear: e.target.value })} placeholder="2026" /></label>}
+            </div>
+          </section>
           <DataTable columns={['Child', 'DOB', 'Sex', 'Caregiver', 'Duplicate']} rows={children.map(item => [`${item.firstName} ${item.lastName}`, item.dateOfBirth, item.sex, item.guardian?.phoneNumber ?? item.guardianId, item.isPossibleDuplicate ? status('Possible') : 'No'])} />
           <DataTable title="Duplicate review queue" columns={['Child', 'Caregiver', 'Facility']} rows={duplicates.map(item => [`${item.firstName} ${item.lastName}`, item.guardian?.phoneNumber ?? '-', item.facilityId])} />
         </section>
