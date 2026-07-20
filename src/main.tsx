@@ -49,6 +49,7 @@ import {
   fetchSyncDownload,
   fetchSyncReliability,
   fetchSyncStatus,
+  fetchVaccineSchedules,
   fetchUsers,
   fetchVaccines,
   generateScheduleAppointments,
@@ -67,7 +68,7 @@ import {
   updateUser,
   updateVaccine
 } from './api';
-import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, DueVaccineItem, Facility, FacilityPerformance, GenerateScheduleAppointmentsResult, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine } from './types';
+import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, DueVaccineItem, Facility, FacilityPerformance, GenerateScheduleAppointmentsResult, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine, VaccineSchedule } from './types';
 import './styles.css';
 
 type ViewKey = 'dashboard' | 'users' | 'facilities' | 'children' | 'vaccines' | 'appointments' | 'reports' | 'sync' | 'sms' | 'audit' | 'devices';
@@ -508,11 +509,16 @@ function ChildrenView({ session }: { session: AuthSession }) {
 
 function VaccinesView() {
   const [vaccines, setVaccines] = useState<Vaccine[]>([]);
+  const [schedules, setSchedules] = useState<VaccineSchedule[]>([]);
   const [editing, setEditing] = useState<Vaccine | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const [form, setForm] = useState({ name: '', code: '', description: '' });
   const [schedule, setSchedule] = useState({ vaccineId: '', doseName: '', recommendedAgeInWeeks: 0, minimumAgeInWeeks: '', maximumAgeInWeeks: '', sequence: 1 });
-  const load = async () => setVaccines(await fetchVaccines());
+  const load = async () => {
+    const [vaccineData, scheduleData] = await Promise.all([fetchVaccines(), fetchVaccineSchedules()]);
+    setVaccines(vaccineData);
+    setSchedules(scheduleData);
+  };
   useEffect(() => { void load(); }, []);
 
   async function submit(event: React.FormEvent) {
@@ -572,7 +578,10 @@ function VaccinesView() {
             <button><Plus size={16} />Add schedule</button>
           </form>
         </div>
-        <DataTable columns={['Name', 'Code', 'Description', 'Actions']} rows={vaccines.map(vaccine => [vaccine.name, vaccine.code, vaccine.description ?? '-', <RowActions><button onClick={() => { setEditing(vaccine); setForm({ name: vaccine.name, code: vaccine.code, description: vaccine.description ?? '' }); }}>Edit</button><button onClick={() => void disableVaccine(vaccine.id).then(load)}>Disable</button></RowActions>])} />
+        <section>
+          <DataTable columns={['Name', 'Code', 'Description', 'Actions']} rows={vaccines.map(vaccine => [vaccine.name, vaccine.code, vaccine.description ?? '-', <RowActions><button onClick={() => { setEditing(vaccine); setForm({ name: vaccine.name, code: vaccine.code, description: vaccine.description ?? '' }); }}>Edit</button><button onClick={() => void disableVaccine(vaccine.id).then(load)}>Disable</button></RowActions>])} />
+          <DataTable title="Saved schedules" columns={['Vaccine', 'Dose', 'Weeks', 'Min', 'Max', 'Sequence']} rows={schedules.map(item => [item.vaccine?.name ?? item.vaccineId ?? '-', item.doseName, item.recommendedAgeInWeeks, item.minimumAgeInWeeks ?? '-', item.maximumAgeInWeeks ?? '-', item.sequence])} />
+        </section>
       </Workspace>
     </>
   );
@@ -588,26 +597,39 @@ function AppointmentsView({ session }: { session: AuthSession }) {
   const [immunization, setImmunization] = useState({ childId: '', vaccineId: '', doseName: '', facilityId: session.facilityId ?? '', dateAdministered: today(), notes: '' });
 
   async function load() {
-    const [appointmentData, childData, vaccineData, facilityData] = await Promise.all([fetchAppointments(), fetchChildren(), fetchVaccines(), fetchFacilities()]);
-    setAppointments(appointmentData);
-    setChildren(childData);
-    setVaccines(vaccineData);
-    setFacilities(facilityData);
+    try {
+      const [appointmentData, childData, vaccineData, facilityData] = await Promise.all([fetchAppointments(), fetchChildren(), fetchVaccines(), fetchFacilities()]);
+      setAppointments(appointmentData);
+      setChildren(childData);
+      setVaccines(vaccineData);
+      setFacilities(facilityData);
+      setNotice(null);
+    } catch (error) {
+      setNotice({ tone: 'error', text: `Appointments page could not load required data. ${messageFrom(error)}` });
+    }
   }
   useEffect(() => { void load(); }, []);
 
   async function addAppointment(event: React.FormEvent) {
     event.preventDefault();
-    await createAppointment(form);
-    setNotice({ tone: 'ok', text: 'Appointment created and reminder scheduled when caregiver data exists.' });
-    await load();
+    try {
+      await createAppointment(form);
+      setNotice({ tone: 'ok', text: 'Appointment created and reminder scheduled when caregiver data exists.' });
+      await load();
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
   }
 
   async function addImmunization(event: React.FormEvent) {
     event.preventDefault();
-    await recordImmunization({ ...immunization, administeredByUserId: session.userId, createdByDeviceId: null, notes: clean(immunization.notes) });
-    setNotice({ tone: 'ok', text: 'Immunization recorded.' });
-    await load();
+    try {
+      await recordImmunization({ ...immunization, administeredByUserId: session.userId, createdByDeviceId: null, notes: clean(immunization.notes) });
+      setNotice({ tone: 'ok', text: 'Immunization recorded.' });
+      await load();
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
   }
 
   return (

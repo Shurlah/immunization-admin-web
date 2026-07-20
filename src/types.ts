@@ -103,6 +103,7 @@ export type Vaccine = {
 export type VaccineSchedule = {
   id?: string;
   vaccineId?: string;
+  vaccine?: Vaccine | null;
   doseName: string;
   recommendedAgeInWeeks: number;
   minimumAgeInWeeks?: number | null;

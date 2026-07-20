@@ -249,6 +249,11 @@ export async function createSchedule(vaccineId: string, payload: VaccineSchedule
   return (await api.post<VaccineSchedule>(`/api/vaccines/${vaccineId}/schedules`, payload)).data;
 }
 
+export async function fetchVaccineSchedules(vaccineId?: string) {
+  const path = vaccineId ? `/api/vaccines/${vaccineId}/schedules` : '/api/vaccines/schedules';
+  return (await api.get<VaccineSchedule[]>(path)).data;
+}
+
 export async function fetchChildren(params?: { q?: string; phone?: string; facilityId?: string }) {
   if (params?.q || params?.phone || params?.facilityId) {
     return (await api.get<Child[]>('/api/children/search', { params })).data;
