@@ -61,6 +61,37 @@ export type Child = {
   isPossibleDuplicate: boolean;
 };
 
+export type DueVaccineItem = {
+  vaccineId: string;
+  vaccineName: string;
+  doseName: string;
+  recommendedAgeInWeeks: number;
+  minimumAgeInWeeks?: number | null;
+  maximumAgeInWeeks?: number | null;
+  dueDate: string;
+  status: string;
+  isOverdue: boolean;
+  isCompleted: boolean;
+  hasScheduledAppointment: boolean;
+  scheduledAppointmentId?: string | null;
+  scheduledAppointmentDate?: string | null;
+  latestAppointmentStatus?: string | null;
+};
+
+export type GeneratedAppointmentItem = {
+  appointmentId: string;
+  vaccineId: string;
+  doseName: string;
+  appointmentDate: string;
+  appointmentTime: string;
+};
+
+export type GenerateScheduleAppointmentsResult = {
+  throughDate: string;
+  createdCount: number;
+  appointments: GeneratedAppointmentItem[];
+};
+
 export type Vaccine = {
   id: string;
   name: string;

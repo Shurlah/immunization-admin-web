@@ -39,6 +39,7 @@ import {
   fetchAuditLogs,
   fetchChildren,
   fetchCoverage,
+  fetchDueVaccines,
   fetchDuplicates,
   fetchFacilities,
   fetchFacilityPerformance,
@@ -50,6 +51,7 @@ import {
   fetchSyncStatus,
   fetchUsers,
   fetchVaccines,
+  generateScheduleAppointments,
   loadSession,
   login,
   logout,
@@ -65,7 +67,7 @@ import {
   updateUser,
   updateVaccine
 } from './api';
-import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, Facility, FacilityPerformance, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine } from './types';
+import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, DueVaccineItem, Facility, FacilityPerformance, GenerateScheduleAppointmentsResult, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine } from './types';
 import './styles.css';
 
 type ViewKey = 'dashboard' | 'users' | 'facilities' | 'children' | 'vaccines' | 'appointments' | 'reports' | 'sync' | 'sms' | 'audit' | 'devices';
@@ -362,6 +364,10 @@ function ChildrenView({ session }: { session: AuthSession }) {
   const [children, setChildren] = useState<Child[]>([]);
   const [duplicates, setDuplicates] = useState<Child[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [selectedChildId, setSelectedChildId] = useState('');
+  const [dueVaccines, setDueVaccines] = useState<DueVaccineItem[]>([]);
+  const [scheduleResult, setScheduleResult] = useState<GenerateScheduleAppointmentsResult | null>(null);
+  const [scheduleThroughDate, setScheduleThroughDate] = useState(addDays(today(), 84));
   const [query, setQuery] = useState('');
   const [phone, setPhone] = useState('');
   const [notice, setNotice] = useState<Notice>(null);
@@ -375,8 +381,21 @@ function ChildrenView({ session }: { session: AuthSession }) {
     setChildren(childData);
     setDuplicates(duplicateData);
     setFacilities(facilityData);
+    setSelectedChildId(current => current || childData[0]?.id || '');
   }
   useEffect(() => { void load(); }, []);
+
+  useEffect(() => {
+    if (!selectedChildId) {
+      setDueVaccines([]);
+      setScheduleResult(null);
+      return;
+    }
+
+    void fetchDueVaccines(selectedChildId)
+      .then(setDueVaccines)
+      .catch(error => setNotice({ tone: 'error', text: messageFrom(error) }));
+  }, [selectedChildId]);
 
   async function search() {
     setChildren(await fetchChildren({ q: clean(query) ?? undefined, phone: clean(phone) ?? undefined }));
@@ -410,6 +429,22 @@ function ChildrenView({ session }: { session: AuthSession }) {
 
       await exportChildrenCsv(params);
       setNotice({ tone: 'ok', text: 'Children export download started.' });
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
+  }
+
+  async function generateAppointmentsFromSchedule() {
+    if (!selectedChildId) return;
+
+    try {
+      const result = await generateScheduleAppointments(selectedChildId, {
+        throughDate: clean(scheduleThroughDate) ?? undefined,
+        createdByUserId: session.userId
+      });
+      setScheduleResult(result);
+      setNotice({ tone: 'ok', text: result.createdCount > 0 ? `${result.createdCount} appointment(s) generated from vaccine schedules.` : 'No new appointments were generated for the selected horizon.' });
+      setDueVaccines(await fetchDueVaccines(selectedChildId));
     } catch (error) {
       setNotice({ tone: 'error', text: messageFrom(error) });
     }
@@ -450,6 +485,18 @@ function ChildrenView({ session }: { session: AuthSession }) {
               {exportMode === 'year' && <label>Start year<input type="number" min="1" step="1" value={exportFilters.startYear} onChange={e => setExportFilters({ ...exportFilters, startYear: e.target.value })} placeholder="2025" /></label>}
               {exportMode === 'year' && <label>End year<input type="number" min="1" step="1" value={exportFilters.endYear} onChange={e => setExportFilters({ ...exportFilters, endYear: e.target.value })} placeholder="2026" /></label>}
             </div>
+          </section>
+          <section className="work-panel export-panel">
+            <div className="export-header">
+              <h2>Child vaccine schedule</h2>
+              <button onClick={() => void generateAppointmentsFromSchedule()} disabled={!selectedChildId}><CalendarDays size={16} />Generate appointments</button>
+            </div>
+            <div className="filters export-filters">
+              <label>Child<select value={selectedChildId} onChange={e => setSelectedChildId(e.target.value)}><option value="">Select child</option>{children.map(item => <option key={item.id} value={item.id}>{item.firstName} {item.lastName}</option>)}</select></label>
+              <label>Generate through<input type="date" value={scheduleThroughDate} onChange={e => setScheduleThroughDate(e.target.value)} /></label>
+            </div>
+            <DataTable columns={['Vaccine', 'Dose', 'Due date', 'Weeks', 'Status', 'Scheduled date']} rows={dueVaccines.map(item => [item.vaccineName, item.doseName, item.dueDate, item.recommendedAgeInWeeks, status(item.status), item.scheduledAppointmentDate ?? '-'])} />
+            {scheduleResult && <p className="muted">Last generation ran through {scheduleResult.throughDate} and created {scheduleResult.createdCount} appointment(s).</p>}
           </section>
           <DataTable columns={['Child', 'DOB', 'Sex', 'Caregiver', 'Duplicate']} rows={children.map(item => [`${item.firstName} ${item.lastName}`, item.dateOfBirth, item.sex, item.guardian?.phoneNumber ?? item.guardianId, item.isPossibleDuplicate ? status('Possible') : 'No'])} />
           <DataTable title="Duplicate review queue" columns={['Child', 'Caregiver', 'Facility']} rows={duplicates.map(item => [`${item.firstName} ${item.lastName}`, item.guardian?.phoneNumber ?? '-', item.facilityId])} />
@@ -808,6 +855,12 @@ function clean(value?: string | null) {
 
 function numberOrNull(value: string) {
   return value === '' ? null : Number(value);
+}
+
+function addDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function childName(children: Child[], id: string) {

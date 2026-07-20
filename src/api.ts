@@ -7,6 +7,8 @@ import type {
   DashboardMetrics,
   Facility,
   FacilityPerformance,
+  DueVaccineItem,
+  GenerateScheduleAppointmentsResult,
   Guardian,
   ImmunizationRecord,
   Paged,
@@ -256,6 +258,14 @@ export async function fetchChildren(params?: { q?: string; phone?: string; facil
 
 export async function fetchDuplicates() {
   return (await api.get<Child[]>('/api/children/duplicates')).data;
+}
+
+export async function fetchDueVaccines(childId: string) {
+  return (await api.get<DueVaccineItem[]>(`/api/children/${childId}/due-vaccines`)).data;
+}
+
+export async function generateScheduleAppointments(childId: string, payload: { throughDate?: string; createdByUserId?: string | null }) {
+  return (await api.post<GenerateScheduleAppointmentsResult>(`/api/children/${childId}/generate-appointments`, payload)).data;
 }
 
 export async function exportChildrenCsv(params?: {
