@@ -55,8 +55,10 @@ import {
   logout,
   markAppointmentMissed,
   recordImmunization,
+  refreshSession,
   registerDevice,
   roleOptions,
+  onSessionChange,
   setSession,
   sendTestSms,
   updateFacility,
@@ -75,53 +77,111 @@ const today = () => new Date().toISOString().slice(0, 10);
 function App() {
   const [session, setLocalSession] = useState<AuthSession | null>(() => loadSession());
   const [view, setView] = useState<ViewKey>('dashboard');
+  const [showSessionWarning, setShowSessionWarning] = useState(false);
+  const [warningBusy, setWarningBusy] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onSessionChange(setLocalSession);
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!session?.accessTokenExpiresAt) {
+      setShowSessionWarning(false);
+      return;
+    }
+
+    const warningLeadMs = 5 * 60 * 1000;
+    const msUntilWarning = session.accessTokenExpiresAt - Date.now() - warningLeadMs;
+
+    if (msUntilWarning <= 0) {
+      setShowSessionWarning(true);
+      return;
+    }
+
+    setShowSessionWarning(false);
+    const timer = window.setTimeout(() => setShowSessionWarning(true), msUntilWarning);
+    return () => window.clearTimeout(timer);
+  }, [session?.accessTokenExpiresAt]);
 
   if (!session) return <LoginScreen onLogin={setLocalSession} />;
 
   async function signOut() {
     if (session) await logout(session.refreshToken).catch(() => setSession(null));
     setLocalSession(null);
+    setShowSessionWarning(false);
+  }
+
+  async function staySignedIn() {
+    if (!session) return;
+
+    setWarningBusy(true);
+    try {
+      await refreshSession(session.refreshToken);
+      setShowSessionWarning(false);
+    } catch {
+      setShowSessionWarning(false);
+      setLocalSession(null);
+    } finally {
+      setWarningBusy(false);
+    }
   }
 
   return (
-    <main className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">AI</span>
-          <div>
-            <strong>Alimosho Immunization</strong>
-            <small>{session.role}</small>
+    <>
+      <main className="shell">
+        <aside className="sidebar">
+          <div className="brand">
+            <span className="brand-mark">AI</span>
+            <div>
+              <strong>Alimosho Immunization</strong>
+              <small>{session.role}</small>
+            </div>
           </div>
+          <nav aria-label="Portal sections">
+            <NavButton icon={<Activity />} active={view === 'dashboard'} onClick={() => setView('dashboard')} label="Dashboard" />
+            <NavButton icon={<Users />} active={view === 'users'} onClick={() => setView('users')} label="Users" />
+            <NavButton icon={<Building2 />} active={view === 'facilities'} onClick={() => setView('facilities')} label="Facilities" />
+            <NavButton icon={<Users />} active={view === 'children'} onClick={() => setView('children')} label="Children" />
+            <NavButton icon={<Syringe />} active={view === 'vaccines'} onClick={() => setView('vaccines')} label="Vaccines" />
+            <NavButton icon={<CalendarDays />} active={view === 'appointments'} onClick={() => setView('appointments')} label="Appointments" />
+            <NavButton icon={<FileClock />} active={view === 'reports'} onClick={() => setView('reports')} label="Reports" />
+            <NavButton icon={<Database />} active={view === 'sync'} onClick={() => setView('sync')} label="Sync" />
+            <NavButton icon={<Bell />} active={view === 'sms'} onClick={() => setView('sms')} label="SMS" />
+            <NavButton icon={<ShieldCheck />} active={view === 'audit'} onClick={() => setView('audit')} label="Audit" />
+            <NavButton icon={<Smartphone />} active={view === 'devices'} onClick={() => setView('devices')} label="Devices" />
+          </nav>
+          <button className="logout" onClick={signOut}><LogOut size={18} /> Sign out</button>
+        </aside>
+        <section className="content">
+          {view === 'dashboard' && <Dashboard />}
+          {view === 'users' && <UsersView />}
+          {view === 'facilities' && <FacilitiesView />}
+          {view === 'children' && <ChildrenView session={session} />}
+          {view === 'vaccines' && <VaccinesView />}
+          {view === 'appointments' && <AppointmentsView session={session} />}
+          {view === 'reports' && <ReportsView />}
+          {view === 'sync' && <SyncView />}
+          {view === 'sms' && <SmsView />}
+          {view === 'audit' && <AuditView />}
+          {view === 'devices' && <DevicesView />}
+        </section>
+      </main>
+      {showSessionWarning && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="session-warning-title">
+            <h2 id="session-warning-title">Session expiring soon</h2>
+            <p>Your current session is about to expire. Stay signed in to refresh it now, or sign out.</p>
+            <div className="modal-actions">
+              <button className="secondary" onClick={() => void signOut()} disabled={warningBusy}>Sign out</button>
+              <button onClick={() => void staySignedIn()} disabled={warningBusy}>{warningBusy ? 'Refreshing...' : 'Stay signed in'}</button>
+            </div>
+          </section>
         </div>
-        <nav aria-label="Portal sections">
-          <NavButton icon={<Activity />} active={view === 'dashboard'} onClick={() => setView('dashboard')} label="Dashboard" />
-          <NavButton icon={<Users />} active={view === 'users'} onClick={() => setView('users')} label="Users" />
-          <NavButton icon={<Building2 />} active={view === 'facilities'} onClick={() => setView('facilities')} label="Facilities" />
-          <NavButton icon={<Users />} active={view === 'children'} onClick={() => setView('children')} label="Children" />
-          <NavButton icon={<Syringe />} active={view === 'vaccines'} onClick={() => setView('vaccines')} label="Vaccines" />
-          <NavButton icon={<CalendarDays />} active={view === 'appointments'} onClick={() => setView('appointments')} label="Appointments" />
-          <NavButton icon={<FileClock />} active={view === 'reports'} onClick={() => setView('reports')} label="Reports" />
-          <NavButton icon={<Database />} active={view === 'sync'} onClick={() => setView('sync')} label="Sync" />
-          <NavButton icon={<Bell />} active={view === 'sms'} onClick={() => setView('sms')} label="SMS" />
-          <NavButton icon={<ShieldCheck />} active={view === 'audit'} onClick={() => setView('audit')} label="Audit" />
-          <NavButton icon={<Smartphone />} active={view === 'devices'} onClick={() => setView('devices')} label="Devices" />
-        </nav>
-        <button className="logout" onClick={signOut}><LogOut size={18} /> Sign out</button>
-      </aside>
-      <section className="content">
-        {view === 'dashboard' && <Dashboard />}
-        {view === 'users' && <UsersView />}
-        {view === 'facilities' && <FacilitiesView />}
-        {view === 'children' && <ChildrenView session={session} />}
-        {view === 'vaccines' && <VaccinesView />}
-        {view === 'appointments' && <AppointmentsView session={session} />}
-        {view === 'reports' && <ReportsView />}
-        {view === 'sync' && <SyncView />}
-        {view === 'sms' && <SmsView />}
-        {view === 'audit' && <AuditView />}
-        {view === 'devices' && <DevicesView />}
-      </section>
-    </main>
+      )}
+    </>
   );
 }
 
@@ -424,8 +484,21 @@ function VaccinesView() {
 
   async function addSchedule(event: React.FormEvent) {
     event.preventDefault();
-    await createSchedule(schedule.vaccineId, { doseName: schedule.doseName, recommendedAgeInWeeks: Number(schedule.recommendedAgeInWeeks), minimumAgeInWeeks: numberOrNull(schedule.minimumAgeInWeeks), maximumAgeInWeeks: numberOrNull(schedule.maximumAgeInWeeks), sequence: Number(schedule.sequence), isActive: true });
-    setNotice({ tone: 'ok', text: 'Schedule added for sync download.' });
+    try {
+      await createSchedule(schedule.vaccineId, {
+        doseName: schedule.doseName,
+        recommendedAgeInWeeks: Number(schedule.recommendedAgeInWeeks),
+        minimumAgeInWeeks: numberOrNull(schedule.minimumAgeInWeeks),
+        maximumAgeInWeeks: numberOrNull(schedule.maximumAgeInWeeks),
+        sequence: Number(schedule.sequence),
+        isActive: true
+      });
+      setNotice({ tone: 'ok', text: 'Schedule added for sync download.' });
+      setSchedule({ vaccineId: '', doseName: '', recommendedAgeInWeeks: 0, minimumAgeInWeeks: '', maximumAgeInWeeks: '', sequence: 1 });
+      await load();
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
   }
 
   return (

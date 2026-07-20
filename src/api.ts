@@ -18,6 +18,11 @@ import type {
   VaccineSchedule
 } from './types';
 
+type SessionListener = (session: AuthSession | null) => void;
+
+const sessionListeners = new Set<SessionListener>();
+let refreshPromise: Promise<AuthSession | null> | null = null;
+
 export const roleOptions = [
   { id: 'a1111111-1111-1111-1111-111111111111', name: 'SystemAdministrator' },
   { id: 'a2222222-2222-2222-2222-222222222222', name: 'LgaHealthOfficial' },
@@ -31,20 +36,53 @@ export const api = axios.create({
   timeout: 15000
 });
 
+function decodeJwtPayload(token: string) {
+  const [, payload] = token.split('.');
+  if (!payload) return null;
+
+  try {
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), '=');
+    return JSON.parse(atob(padded)) as { exp?: number };
+  } catch {
+    return null;
+  }
+}
+
+function withAccessTokenExpiry(session: AuthSession): AuthSession {
+  const payload = decodeJwtPayload(session.accessToken);
+  return {
+    ...session,
+    accessTokenExpiresAt: payload?.exp ? payload.exp * 1000 : undefined
+  };
+}
+
+function notifySessionListeners(session: AuthSession | null) {
+  sessionListeners.forEach(listener => listener(session));
+}
+
+export function onSessionChange(listener: SessionListener) {
+  sessionListeners.add(listener);
+  return () => sessionListeners.delete(listener);
+}
+
 export function setSession(session: AuthSession | null) {
   if (session) {
-    localStorage.setItem('immunization-admin-session', JSON.stringify(session));
-    api.defaults.headers.common.Authorization = `Bearer ${session.accessToken}`;
+    const normalizedSession = withAccessTokenExpiry(session);
+    localStorage.setItem('immunization-admin-session', JSON.stringify(normalizedSession));
+    api.defaults.headers.common.Authorization = `Bearer ${normalizedSession.accessToken}`;
+    notifySessionListeners(normalizedSession);
   } else {
     localStorage.removeItem('immunization-admin-session');
     delete api.defaults.headers.common.Authorization;
+    notifySessionListeners(null);
   }
 }
 
 export function loadSession(): AuthSession | null {
   const raw = localStorage.getItem('immunization-admin-session');
   if (!raw) return null;
-  const session = JSON.parse(raw) as AuthSession;
+  const session = withAccessTokenExpiry(JSON.parse(raw) as AuthSession);
   api.defaults.headers.common.Authorization = `Bearer ${session.accessToken}`;
   return session;
 }
@@ -59,6 +97,55 @@ export async function logout(refreshToken: string) {
   await api.post('/api/auth/logout', { refreshToken });
   setSession(null);
 }
+
+export async function refreshSession(refreshToken?: string) {
+  const currentSession = refreshToken ? loadSession() ?? { refreshToken } as AuthSession : loadSession();
+  const token = refreshToken ?? currentSession?.refreshToken;
+
+  if (!token) {
+    setSession(null);
+    return null;
+  }
+
+  const response = await api.post<AuthSession>('/api/auth/refresh-token', { refreshToken: token }, { skipAuthRefresh: true } as never);
+  setSession(response.data);
+  return loadSession();
+}
+
+api.interceptors.response.use(
+  response => response,
+  async error => {
+    const status = error.response?.status;
+    const originalRequest = error.config as (typeof error.config & { _retry?: boolean; skipAuthRefresh?: boolean }) | undefined;
+
+    if (status !== 401 || !originalRequest || originalRequest._retry || originalRequest.skipAuthRefresh) {
+      return Promise.reject(error);
+    }
+
+    originalRequest._retry = true;
+
+    try {
+      refreshPromise ??= refreshSession().finally(() => {
+        refreshPromise = null;
+      });
+
+      const session = await refreshPromise;
+      if (!session) {
+        return Promise.reject(error);
+      }
+
+      originalRequest.headers = {
+        ...originalRequest.headers,
+        Authorization: `Bearer ${session.accessToken}`
+      };
+
+      return api.request(originalRequest);
+    } catch (refreshError) {
+      setSession(null);
+      return Promise.reject(refreshError);
+    }
+  }
+);
 
 export async function fetchCoverage() {
   return (await api.get<DashboardMetrics>('/api/reports/immunization-coverage')).data;

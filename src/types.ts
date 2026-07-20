@@ -4,6 +4,7 @@ export type AuthSession = {
   userId: string;
   role: string;
   facilityId?: string | null;
+  accessTokenExpiresAt?: number;
 };
 
 export type Paged<T> = {
