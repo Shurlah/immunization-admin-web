@@ -37,6 +37,7 @@ import {
   exportSyncReliabilityCsv,
   fetchAppointments,
   fetchAuditLogs,
+  fetchChildImmunizations,
   fetchChildren,
   fetchCoverage,
   fetchDueVaccines,
@@ -68,10 +69,11 @@ import {
   updateUser,
   updateVaccine
 } from './api';
-import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, DueVaccineItem, Facility, FacilityPerformance, GenerateScheduleAppointmentsResult, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine, VaccineSchedule } from './types';
+import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, DueVaccineItem, Facility, FacilityPerformance, GenerateScheduleAppointmentsResult, ImmunizationRecord, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine, VaccineSchedule } from './types';
 import './styles.css';
 
 type ViewKey = 'dashboard' | 'users' | 'facilities' | 'children' | 'vaccines' | 'appointments' | 'reports' | 'sync' | 'sms' | 'audit' | 'devices';
+type AppointmentSection = 'schedule' | 'record' | 'history';
 type Notice = { tone: 'ok' | 'error'; text: string } | null;
 
 const emptyFacility = { name: '', code: '', address: '', ward: '', lga: 'Alimosho', state: 'Lagos' };
@@ -80,6 +82,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 function App() {
   const [session, setLocalSession] = useState<AuthSession | null>(() => loadSession());
   const [view, setView] = useState<ViewKey>('dashboard');
+  const [appointmentSection, setAppointmentSection] = useState<AppointmentSection>('schedule');
   const [showSessionWarning, setShowSessionWarning] = useState(false);
   const [warningBusy, setWarningBusy] = useState(false);
 
@@ -132,6 +135,13 @@ function App() {
     }
   }
 
+  function navigateTo(nextView: ViewKey, nextAppointmentSection?: AppointmentSection) {
+    setView(nextView);
+    if (nextView === 'appointments' && nextAppointmentSection) {
+      setAppointmentSection(nextAppointmentSection);
+    }
+  }
+
   return (
     <>
       <main className="shell">
@@ -144,27 +154,27 @@ function App() {
             </div>
           </div>
           <nav aria-label="Portal sections">
-            <NavButton icon={<Activity />} active={view === 'dashboard'} onClick={() => setView('dashboard')} label="Dashboard" />
-            <NavButton icon={<Users />} active={view === 'users'} onClick={() => setView('users')} label="Users" />
-            <NavButton icon={<Building2 />} active={view === 'facilities'} onClick={() => setView('facilities')} label="Facilities" />
-            <NavButton icon={<Users />} active={view === 'children'} onClick={() => setView('children')} label="Children" />
-            <NavButton icon={<Syringe />} active={view === 'vaccines'} onClick={() => setView('vaccines')} label="Vaccines" />
-            <NavButton icon={<CalendarDays />} active={view === 'appointments'} onClick={() => setView('appointments')} label="Appointments" />
-            <NavButton icon={<FileClock />} active={view === 'reports'} onClick={() => setView('reports')} label="Reports" />
-            <NavButton icon={<Database />} active={view === 'sync'} onClick={() => setView('sync')} label="Sync" />
-            <NavButton icon={<Bell />} active={view === 'sms'} onClick={() => setView('sms')} label="SMS" />
-            <NavButton icon={<ShieldCheck />} active={view === 'audit'} onClick={() => setView('audit')} label="Audit" />
-            <NavButton icon={<Smartphone />} active={view === 'devices'} onClick={() => setView('devices')} label="Devices" />
+            <NavButton icon={<Activity />} active={view === 'dashboard'} onClick={() => navigateTo('dashboard')} label="Dashboard" />
+            <NavButton icon={<Users />} active={view === 'users'} onClick={() => navigateTo('users')} label="Users" />
+            <NavButton icon={<Building2 />} active={view === 'facilities'} onClick={() => navigateTo('facilities')} label="Facilities" />
+            <NavButton icon={<Users />} active={view === 'children'} onClick={() => navigateTo('children')} label="Children" />
+            <NavButton icon={<Syringe />} active={view === 'vaccines'} onClick={() => navigateTo('vaccines')} label="Vaccines" />
+            <NavButton icon={<CalendarDays />} active={view === 'appointments'} onClick={() => navigateTo('appointments')} label="Appointments" />
+            <NavButton icon={<FileClock />} active={view === 'reports'} onClick={() => navigateTo('reports')} label="Reports" />
+            <NavButton icon={<Database />} active={view === 'sync'} onClick={() => navigateTo('sync')} label="Sync" />
+            <NavButton icon={<Bell />} active={view === 'sms'} onClick={() => navigateTo('sms')} label="SMS" />
+            <NavButton icon={<ShieldCheck />} active={view === 'audit'} onClick={() => navigateTo('audit')} label="Audit" />
+            <NavButton icon={<Smartphone />} active={view === 'devices'} onClick={() => navigateTo('devices')} label="Devices" />
           </nav>
           <button className="logout" onClick={signOut}><LogOut size={18} /> Sign out</button>
         </aside>
         <section className="content">
-          {view === 'dashboard' && <Dashboard />}
+          {view === 'dashboard' && <Dashboard onNavigate={navigateTo} />}
           {view === 'users' && <UsersView />}
           {view === 'facilities' && <FacilitiesView />}
           {view === 'children' && <ChildrenView session={session} />}
           {view === 'vaccines' && <VaccinesView />}
-          {view === 'appointments' && <AppointmentsView session={session} />}
+          {view === 'appointments' && <AppointmentsView session={session} initialSection={appointmentSection} onSectionChange={setAppointmentSection} />}
           {view === 'reports' && <ReportsView />}
           {view === 'sync' && <SyncView />}
           {view === 'sms' && <SmsView />}
@@ -220,7 +230,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: AuthSession) => void }) {
   );
 }
 
-function Dashboard() {
+function Dashboard({ onNavigate }: { onNavigate: (view: ViewKey, appointmentSection?: AppointmentSection) => void }) {
   const [coverage, setCoverage] = useState<DashboardMetrics | null>(null);
   const [sms, setSms] = useState<SmsDelivery | null>(null);
   const [sync, setSync] = useState<SyncReliability | null>(null);
@@ -240,12 +250,12 @@ function Dashboard() {
     <>
       <Header title="Operations Dashboard" subtitle="Current immunization activity across facilities" />
       <div className="metric-grid">
-        <Metric icon={<Users />} label="Registered children" value={coverage?.registeredChildren ?? 0} />
-        <Metric icon={<ShieldCheck />} label="Immunizations" value={coverage?.completedImmunizations ?? 0} />
-        <Metric icon={<Bell />} label="Missed appointments" value={coverage?.missedAppointments ?? 0} tone="alert" />
-        <Metric icon={<Database />} label="Processed sync items" value={sync?.processed ?? sync?.accepted ?? 0} />
-        <Metric icon={<Send />} label="SMS sent" value={sms?.sent ?? 0} />
-        <Metric icon={<Activity />} label="Sync failures" value={sync?.failed ?? 0} tone="alert" />
+        <Metric icon={<Users />} label="Registered children" value={coverage?.registeredChildren ?? 0} onClick={() => onNavigate('children')} />
+        <Metric icon={<ShieldCheck />} label="Immunizations" value={coverage?.completedImmunizations ?? 0} onClick={() => onNavigate('appointments', 'history')} />
+        <Metric icon={<Bell />} label="Missed appointments" value={coverage?.missedAppointments ?? 0} tone="alert" onClick={() => onNavigate('reports')} />
+        <Metric icon={<Database />} label="Processed sync items" value={sync?.processed ?? sync?.accepted ?? 0} onClick={() => onNavigate('sync')} />
+        <Metric icon={<Send />} label="SMS sent" value={sms?.sent ?? 0} onClick={() => onNavigate('sms')} />
+        <Metric icon={<Activity />} label="Sync failures" value={sync?.failed ?? 0} tone="alert" onClick={() => onNavigate('sync')} />
       </div>
       <DataTable title="Facility performance" columns={['Facility', 'Children', 'Immunizations', 'Missed']} rows={performance.map(row => [row.name, row.children, row.immunizations, row.missedAppointments])} />
     </>
@@ -587,11 +597,24 @@ function VaccinesView() {
   );
 }
 
-function AppointmentsView({ session }: { session: AuthSession }) {
+function AppointmentsView({
+  session,
+  initialSection,
+  onSectionChange
+}: {
+  session: AuthSession;
+  initialSection: AppointmentSection;
+  onSectionChange: (section: AppointmentSection) => void;
+}) {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [records, setRecords] = useState<ImmunizationRecord[]>([]);
   const [children, setChildren] = useState<Child[]>([]);
   const [vaccines, setVaccines] = useState<Vaccine[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [activeSection, setActiveSection] = useState<AppointmentSection>(initialSection);
+  const [appointmentFilter, setAppointmentFilter] = useState<'all' | 'scheduled' | 'completed' | 'missed'>('all');
+  const [historyChildId, setHistoryChildId] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [form, setForm] = useState({ childId: '', vaccineId: '', doseName: '', facilityId: session.facilityId ?? '', appointmentDate: today() });
   const [immunization, setImmunization] = useState({ childId: '', vaccineId: '', doseName: '', facilityId: session.facilityId ?? '', dateAdministered: today(), notes: '' });
@@ -610,6 +633,27 @@ function AppointmentsView({ session }: { session: AuthSession }) {
   }
   useEffect(() => { void load(); }, []);
 
+  useEffect(() => {
+    setActiveSection(initialSection);
+  }, [initialSection]);
+
+  useEffect(() => {
+    onSectionChange(activeSection);
+  }, [activeSection, onSectionChange]);
+
+  useEffect(() => {
+    if (!historyChildId) {
+      setRecords([]);
+      return;
+    }
+
+    setHistoryLoading(true);
+    void fetchChildImmunizations(historyChildId)
+      .then(setRecords)
+      .catch(error => setNotice({ tone: 'error', text: messageFrom(error) }))
+      .finally(() => setHistoryLoading(false));
+  }, [historyChildId]);
+
   async function addAppointment(event: React.FormEvent) {
     event.preventDefault();
     try {
@@ -625,23 +669,96 @@ function AppointmentsView({ session }: { session: AuthSession }) {
     event.preventDefault();
     try {
       await recordImmunization({ ...immunization, administeredByUserId: session.userId, createdByDeviceId: null, notes: clean(immunization.notes) });
-      setNotice({ tone: 'ok', text: 'Immunization recorded.' });
+      setHistoryChildId(immunization.childId);
+      setActiveSection('history');
+      setNotice({ tone: 'ok', text: 'Immunization recorded. The child history has been refreshed below.' });
       await load();
     } catch (error) {
       setNotice({ tone: 'error', text: messageFrom(error) });
     }
   }
 
+  function startRecordingFromAppointment(appointment: Appointment) {
+    setImmunization({
+      childId: appointment.childId,
+      vaccineId: appointment.vaccineId,
+      doseName: appointment.doseName,
+      facilityId: appointment.facilityId,
+      dateAdministered: today(),
+      notes: ''
+    });
+    setHistoryChildId(appointment.childId);
+    setActiveSection('record');
+  }
+
+  const filteredAppointments = appointments.filter(item => {
+    if (appointmentFilter === 'all') return true;
+    if (appointmentFilter === 'scheduled') return item.status.toLowerCase() === 'scheduled';
+    if (appointmentFilter === 'completed') return item.status.toLowerCase() === 'completed';
+    return item.status.toLowerCase() === 'missed';
+  });
+
   return (
     <>
       <Header title="Appointments" subtitle="Schedule visits, mark outcomes, and record vaccinations" />
       <NoticeBox notice={notice} />
+      <section className="section-tabs" aria-label="Appointment workflows">
+        <button className={activeSection === 'schedule' ? 'tab-active' : 'secondary'} onClick={() => setActiveSection('schedule')}>Schedule visits</button>
+        <button className={activeSection === 'record' ? 'tab-active' : 'secondary'} onClick={() => setActiveSection('record')}>Record immunization</button>
+        <button className={activeSection === 'history' ? 'tab-active' : 'secondary'} onClick={() => setActiveSection('history')}>Recorded history</button>
+      </section>
       <Workspace>
-        <div className="stack">
-          <RecordForm title="Create appointment" data={form} setData={setForm} children={children} vaccines={vaccines} facilities={facilities} dateKey="appointmentDate" onSubmit={addAppointment} submit="Schedule" />
-          <RecordForm title="Record immunization" data={immunization} setData={setImmunization} children={children} vaccines={vaccines} facilities={facilities} dateKey="dateAdministered" onSubmit={addImmunization} submit="Record" includeNotes />
-        </div>
-        <DataTable columns={['Date', 'Child', 'Dose', 'Status', 'Actions']} rows={appointments.map(item => [item.appointmentDate, childName(children, item.childId), item.doseName, status(item.status), <RowActions><button onClick={() => void completeAppointment(item.id).then(load)}>Complete</button><button onClick={() => void markAppointmentMissed(item.id).then(load)}>Missed</button></RowActions>])} />
+        {activeSection === 'schedule' && (
+          <>
+            <div className="stack">
+              <RecordForm title="Create appointment" data={form} setData={setForm} children={children} vaccines={vaccines} facilities={facilities} dateKey="appointmentDate" onSubmit={addAppointment} submit="Schedule" />
+            </div>
+            <section>
+              <section className="work-panel filters">
+                <label>Status view<select value={appointmentFilter} onChange={e => setAppointmentFilter(e.target.value as 'all' | 'scheduled' | 'completed' | 'missed')}>
+                  <option value="all">All appointments</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="completed">Completed</option>
+                  <option value="missed">Missed</option>
+                </select></label>
+              </section>
+              <DataTable columns={['Date', 'Child', 'Dose', 'Status', 'Actions']} rows={filteredAppointments.map(item => [item.appointmentDate, childName(children, item.childId), item.doseName, status(item.status), <RowActions><button onClick={() => startRecordingFromAppointment(item)}>Record dose</button><button onClick={() => void completeAppointment(item.id).then(load)}>Complete</button><button onClick={() => void markAppointmentMissed(item.id).then(load)}>Missed</button></RowActions>])} />
+            </section>
+          </>
+        )}
+        {activeSection === 'record' && (
+          <>
+            <div className="stack">
+              <RecordForm title="Record immunization" data={immunization} setData={setDataAndTrackChild(setImmunization, setHistoryChildId)} children={children} vaccines={vaccines} facilities={facilities} dateKey="dateAdministered" onSubmit={addImmunization} submit="Record" includeNotes />
+            </div>
+            <section>
+              <section className="work-panel record-summary">
+                <h2>Ready to record</h2>
+                <p>Select a child and dose, or use the <strong>Record dose</strong> action from the appointments table to prefill this form.</p>
+              </section>
+              <DataTable title="Appointments awaiting outcome" columns={['Date', 'Child', 'Dose', 'Status', 'Actions']} rows={appointments.filter(item => item.status.toLowerCase() === 'scheduled').map(item => [item.appointmentDate, childName(children, item.childId), item.doseName, status(item.status), <RowActions><button onClick={() => startRecordingFromAppointment(item)}>Use for record</button><button onClick={() => void completeAppointment(item.id).then(load)}>Complete</button><button onClick={() => void markAppointmentMissed(item.id).then(load)}>Missed</button></RowActions>])} />
+            </section>
+          </>
+        )}
+        {activeSection === 'history' && (
+          <>
+            <div className="stack">
+              <section className="panel-form">
+                <h2>Recorded immunization history</h2>
+                <label>Child<select value={historyChildId} onChange={e => setHistoryChildId(e.target.value)}>
+                  <option value="">Select child</option>
+                  {children.map(child => <option key={child.id} value={child.id}>{childName(children, child.id)}</option>)}
+                </select></label>
+                <p className="muted">Choose a child to see all recorded immunizations that have already occurred.</p>
+              </section>
+            </div>
+            <section>
+              {historyLoading && <section className="work-panel"><p className="muted">Loading immunization history...</p></section>}
+              {!historyLoading && historyChildId && <DataTable title={`Recorded immunizations for ${childName(children, historyChildId)}`} columns={['Date', 'Vaccine', 'Dose', 'Facility', 'Recorded by', 'Notes']} rows={records.map(item => [item.dateAdministered, vaccineName(vaccines, item.vaccineId), item.doseName, facilityName(facilities, item.facilityId), item.administeredByUserId, item.notes ?? '-'])} />}
+              {!historyLoading && !historyChildId && <section className="work-panel"><p className="muted">Select a child to review the immunization records that have already been captured.</p></section>}
+            </section>
+          </>
+        )}
       </Workspace>
     </>
   );
@@ -833,8 +950,24 @@ function Workspace({ children }: { children: React.ReactNode }) {
   return <div className="workspace">{children}</div>;
 }
 
-function Metric({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string | number; tone?: 'alert' }) {
-  return <article className={`metric ${tone ?? ''}`}><span>{icon}</span><p>{label}</p><strong>{value}</strong></article>;
+function Metric({
+  icon,
+  label,
+  value,
+  tone,
+  onClick
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+  tone?: 'alert';
+  onClick?: () => void;
+}) {
+  const className = `metric ${tone ?? ''} ${onClick ? 'metric-button' : ''}`;
+  if (onClick) {
+    return <button type="button" className={className} onClick={onClick}><span>{icon}</span><p>{label}</p><strong>{value}</strong></button>;
+  }
+  return <article className={className}><span>{icon}</span><p>{label}</p><strong>{value}</strong></article>;
 }
 
 function DataTable({ title, columns, rows }: { title?: string; columns: string[]; rows: React.ReactNode[][] }) {
@@ -860,7 +993,7 @@ function NoticeBox({ notice }: { notice: Notice }) {
 }
 
 function NavButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
-  return <button className={active ? 'active' : ''} onClick={onClick}>{icon}{label}</button>;
+  return <button type="button" className={active ? 'active' : ''} onClick={onClick}>{icon}{label}</button>;
 }
 
 function RowActions({ children }: { children: React.ReactNode }) {
@@ -888,6 +1021,27 @@ function addDays(value: string, days: number) {
 function childName(children: Child[], id: string) {
   const child = children.find(item => item.id === id);
   return child ? `${child.firstName} ${child.lastName}` : id;
+}
+
+function vaccineName(vaccines: Vaccine[], id: string) {
+  return vaccines.find(item => item.id === id)?.name ?? id;
+}
+
+function facilityName(facilities: Facility[], id: string) {
+  return facilities.find(item => item.id === id)?.name ?? id;
+}
+
+function setDataAndTrackChild<T extends { childId: string }>(
+  setData: React.Dispatch<React.SetStateAction<T>>,
+  setHistoryChildId: (value: string) => void
+) {
+  return (value: React.SetStateAction<T>) => {
+    setData(previous => {
+      const nextValue = typeof value === 'function' ? (value as (current: T) => T)(previous) : value;
+      setHistoryChildId(nextValue.childId);
+      return nextValue;
+    });
+  };
 }
 
 function formatDateTime(value: string) {

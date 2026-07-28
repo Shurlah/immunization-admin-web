@@ -168,6 +168,17 @@ header p { margin: 8px 0 0; }
   box-shadow: 0 14px 40px rgba(19, 33, 29, .06);
 }
 .metric { padding: 18px; }
+.metric-button {
+  width: 100%;
+  color: inherit;
+  background: var(--panel);
+  text-align: left;
+  align-items: flex-start;
+}
+.metric-button:hover {
+  border-color: rgba(15, 107, 87, .35);
+  box-shadow: 0 18px 44px rgba(19, 33, 29, .1);
+}
 .metric span {
   display: grid;
   place-items: center;
@@ -180,6 +191,18 @@ header p { margin: 8px 0 0; }
 .metric.alert span { color: var(--amber); background: #fff0df; }
 .metric p { margin: 12px 0 0; }
 .metric strong { display: block; margin-top: 8px; font-size: 30px; }
+
+.section-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.section-tabs button.tab-active {
+  background: var(--green);
+  color: white;
+}
 
 .workspace {
   display: grid;
@@ -201,6 +224,9 @@ header p { margin: 8px 0 0; }
   gap: 12px;
   padding: 18px;
   margin-bottom: 18px;
+}
+.record-summary p {
+  margin: 0;
 }
 .inline-tools {
   grid-template-columns: minmax(180px, 260px) auto;

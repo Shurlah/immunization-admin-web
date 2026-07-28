@@ -300,6 +300,10 @@ export async function recordImmunization(payload: { childId: string; vaccineId: 
   return (await api.post<ImmunizationRecord>('/api/immunizations', { id: null, ...payload })).data;
 }
 
+export async function fetchChildImmunizations(childId: string) {
+  return (await api.get<ImmunizationRecord[]>(`/api/immunizations/child/${childId}`)).data;
+}
+
 export async function fetchAppointments() {
   return (await api.get<Appointment[]>('/api/appointments')).data;
 }
