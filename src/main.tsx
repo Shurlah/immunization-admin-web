@@ -28,6 +28,7 @@ import {
   createUser,
   createVaccine,
   deleteChild,
+  deleteSmsNotification,
   deleteUser,
   disableUser,
   disableVaccine,
@@ -76,7 +77,7 @@ import {
   updateUser,
   updateVaccine
 } from './api';
-import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, DueVaccineItem, Facility, FacilityPerformance, GenerateScheduleAppointmentsResult, ImmunizationRecord, ImmunizationRecordDetail, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine, VaccineSchedule } from './types';
+import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, DueVaccineItem, Facility, FacilityPerformance, GenerateScheduleAppointmentsResult, ImmunizationRecord, ImmunizationRecordDetail, MissedAppointmentDetail, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine, VaccineSchedule } from './types';
 import './styles.css';
 
 type ViewKey = 'dashboard' | 'users' | 'facilities' | 'children' | 'vaccines' | 'appointments' | 'reports' | 'sync' | 'sms' | 'audit' | 'devices';
@@ -844,7 +845,7 @@ function AppointmentsView({
 
 function ReportsView() {
   const [coverage, setCoverage] = useState<DashboardMetrics | null>(null);
-  const [missed, setMissed] = useState<Appointment[]>([]);
+  const [missed, setMissed] = useState<MissedAppointmentDetail[]>([]);
   const [sms, setSms] = useState<SmsDelivery | null>(null);
   const [sync, setSync] = useState<SyncReliability | null>(null);
   const [performance, setPerformance] = useState<FacilityPerformance[]>([]);
@@ -898,7 +899,19 @@ function ReportsView() {
         <button onClick={() => void exportCsv(exportSyncReliabilityCsv, 'Sync reliability export started.')}><Download size={16} />Sync reliability CSV</button>
         <button onClick={() => void exportCsv(exportFacilityPerformanceCsv, 'Facility performance export started.')}><Download size={16} />Facility performance CSV</button>
       </section>
-      <DataTable title="Missed appointments" columns={['Date', 'Child ID', 'Dose', 'Facility']} rows={missed.map(item => [item.appointmentDate, item.childId, item.doseName, item.facilityId])} />
+      <DataTable
+        title="Missed appointments"
+        columns={['Child', 'Guardian', 'Vaccine', 'Dose', 'Facility', 'Appointment date', 'Missed at']}
+        rows={missed.map(item => [
+          item.childFirstName && item.childLastName ? `${item.childFirstName} ${item.childLastName}` : item.childId,
+          item.guardianFullName ?? item.guardianPhoneNumber ?? '-',
+          item.vaccineName ?? item.vaccineId,
+          item.doseName,
+          item.facilityName ?? item.facilityId,
+          item.appointmentDate,
+          item.missedAt ? formatDateTime(item.missedAt) : '-'
+        ])}
+      />
       <DataTable title="Facility performance" columns={['Facility', 'Children', 'Immunizations', 'Missed']} rows={performance.map(item => [item.name, item.children, item.immunizations, item.missedAppointments])} />
       <section className="work-panel export-panel">
         <div className="export-header">
@@ -963,6 +976,17 @@ function SmsView() {
       await sendTestSms(form);
       setNotice({ tone: 'ok', text: 'Test SMS request submitted to backend sender.' });
       setForm({ phoneNumber: '', message: '' });
+      await load();
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
+  }
+  async function remove(item: SmsNotification) {
+    if (!window.confirm(`Delete this SMS to ${item.phoneNumber}?`)) return;
+    try {
+      await deleteSmsNotification(item.id);
+      setNotice({ tone: 'ok', text: 'SMS notification deleted.' });
+      await load();
     } catch (error) {
       setNotice({ tone: 'error', text: messageFrom(error) });
     }
@@ -978,7 +1002,17 @@ function SmsView() {
           <label>Message<textarea value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} required /></label>
           <button><Send size={16} />Send test</button>
         </form>
-        <DataTable columns={['Type', 'Phone', 'Status', 'Scheduled', 'Failure']} rows={items.map(item => [item.notificationType, item.phoneNumber, status(item.status), formatDateTime(item.scheduledAt), item.failureReason ?? '-'])} />
+        <DataTable
+          columns={['Type', 'Phone', 'Status', 'Scheduled', 'Failure', 'Actions']}
+          rows={items.map(item => [
+            item.notificationType,
+            item.phoneNumber,
+            status(item.status),
+            formatDateTime(item.scheduledAt),
+            item.failureReason ?? '-',
+            <button onClick={() => void remove(item)}>Delete</button>
+          ])}
+        />
       </Workspace>
     </>
   );

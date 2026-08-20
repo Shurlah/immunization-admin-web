@@ -192,6 +192,24 @@ export type FacilityPerformance = {
   missedAppointments: number;
 };
 
+export type MissedAppointmentDetail = {
+  appointmentId: string;
+  childId: string;
+  childFirstName?: string | null;
+  childLastName?: string | null;
+  guardianFullName?: string | null;
+  guardianPhoneNumber?: string | null;
+  vaccineId: string;
+  vaccineName?: string | null;
+  doseName: string;
+  facilityId: string;
+  facilityName?: string | null;
+  appointmentDate: string;
+  status: string;
+  missedAt?: string | null;
+  createdAt: string;
+};
+
 export type ImmunizationRecordDetail = {
   recordId: string;
   childId: string;

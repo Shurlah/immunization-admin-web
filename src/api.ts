@@ -12,6 +12,7 @@ import type {
   Guardian,
   ImmunizationRecord,
   ImmunizationRecordDetail,
+  MissedAppointmentDetail,
   Paged,
   SmsDelivery,
   SmsNotification,
@@ -167,7 +168,7 @@ export async function fetchFacilityPerformance() {
 }
 
 export async function fetchMissedAppointments() {
-  return (await api.get<Appointment[]>('/api/reports/missed-appointments')).data;
+  return (await api.get<MissedAppointmentDetail[]>('/api/reports/missed-appointments')).data;
 }
 
 export async function downloadReportCsv(path: string, fileName: string) {
@@ -354,6 +355,10 @@ export async function markAppointmentMissed(id: string) {
 
 export async function fetchSmsNotifications() {
   return (await api.get<Paged<SmsNotification>>('/api/notifications/sms', { params: { pageSize: 100 } })).data.items;
+}
+
+export async function deleteSmsNotification(id: string) {
+  await api.delete(`/api/notifications/sms/${id}`);
 }
 
 export async function sendTestSms(payload: { phoneNumber: string; message: string }) {
