@@ -191,3 +191,26 @@ export type FacilityPerformance = {
   immunizations: number;
   missedAppointments: number;
 };
+
+export type ImmunizationRecordDetail = {
+  recordId: string;
+  childId: string;
+  childFirstName: string;
+  childMiddleName?: string | null;
+  childLastName: string;
+  childDateOfBirth: string;
+  childSex: string;
+  guardianFullName?: string | null;
+  guardianPhoneNumber?: string | null;
+  vaccineId: string;
+  vaccineName?: string | null;
+  doseName: string;
+  dateAdministered: string;
+  facilityId: string;
+  facilityName?: string | null;
+  administeredByUserId: string;
+  administeredByUserName?: string | null;
+  notes?: string | null;
+  isCorrection: boolean;
+  createdAt: string;
+};

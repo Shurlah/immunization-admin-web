@@ -33,6 +33,7 @@ import {
   disableVaccine,
   enableUser,
   exportChildrenCsv,
+  exportImmunizationRecordsCsv,
   exportCoverageCsv,
   exportFacilityPerformanceCsv,
   exportMissedAppointmentsCsv,
@@ -47,6 +48,7 @@ import {
   fetchDuplicates,
   fetchFacilities,
   fetchFacilityPerformance,
+  fetchImmunizationRecords,
   fetchMissedAppointments,
   fetchSmsDelivery,
   fetchSmsNotifications,
@@ -74,7 +76,7 @@ import {
   updateUser,
   updateVaccine
 } from './api';
-import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, DueVaccineItem, Facility, FacilityPerformance, GenerateScheduleAppointmentsResult, ImmunizationRecord, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine, VaccineSchedule } from './types';
+import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, DueVaccineItem, Facility, FacilityPerformance, GenerateScheduleAppointmentsResult, ImmunizationRecord, ImmunizationRecordDetail, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine, VaccineSchedule } from './types';
 import './styles.css';
 
 type ViewKey = 'dashboard' | 'users' | 'facilities' | 'children' | 'vaccines' | 'appointments' | 'reports' | 'sync' | 'sms' | 'audit' | 'devices';
@@ -846,11 +848,29 @@ function ReportsView() {
   const [sms, setSms] = useState<SmsDelivery | null>(null);
   const [sync, setSync] = useState<SyncReliability | null>(null);
   const [performance, setPerformance] = useState<FacilityPerformance[]>([]);
+  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [records, setRecords] = useState<ImmunizationRecordDetail[]>([]);
+  const [recordFilters, setRecordFilters] = useState({ facilityId: '', from: '', to: '' });
   const [notice, setNotice] = useState<Notice>(null);
   useEffect(() => {
-    void Promise.all([fetchCoverage(), fetchMissedAppointments(), fetchSmsDelivery(), fetchSyncReliability(), fetchFacilityPerformance()])
-      .then(([a, b, c, d, e]) => { setCoverage(a); setMissed(b); setSms(c); setSync(d); setPerformance(e); });
+    void Promise.all([fetchCoverage(), fetchMissedAppointments(), fetchSmsDelivery(), fetchSyncReliability(), fetchFacilityPerformance(), fetchFacilities()])
+      .then(([a, b, c, d, e, f]) => { setCoverage(a); setMissed(b); setSms(c); setSync(d); setPerformance(e); setFacilities(f); });
+    void loadRecords();
   }, []);
+
+  async function loadRecords(filters = recordFilters) {
+    try {
+      const result = await fetchImmunizationRecords({
+        facilityId: clean(filters.facilityId) ?? undefined,
+        from: clean(filters.from) ?? undefined,
+        to: clean(filters.to) ?? undefined,
+        pageSize: 100
+      });
+      setRecords(result.items);
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
+  }
 
   async function exportCsv(action: () => Promise<void>, successMessage: string) {
     try {
@@ -880,6 +900,30 @@ function ReportsView() {
       </section>
       <DataTable title="Missed appointments" columns={['Date', 'Child ID', 'Dose', 'Facility']} rows={missed.map(item => [item.appointmentDate, item.childId, item.doseName, item.facilityId])} />
       <DataTable title="Facility performance" columns={['Facility', 'Children', 'Immunizations', 'Missed']} rows={performance.map(item => [item.name, item.children, item.immunizations, item.missedAppointments])} />
+      <section className="work-panel export-panel">
+        <div className="export-header">
+          <h2>Immunization records</h2>
+          <button onClick={() => void exportCsv(() => exportImmunizationRecordsCsv({ facilityId: clean(recordFilters.facilityId) ?? undefined, from: clean(recordFilters.from) ?? undefined, to: clean(recordFilters.to) ?? undefined }), 'Immunization records export started.')}><Download size={16} />Export CSV</button>
+        </div>
+        <div className="filters export-filters">
+          <label>Facility<select value={recordFilters.facilityId} onChange={e => { const next = { ...recordFilters, facilityId: e.target.value }; setRecordFilters(next); void loadRecords(next); }}><option value="">All facilities</option>{facilities.map(facility => <option key={facility.id} value={facility.id}>{facility.name}</option>)}</select></label>
+          <label>From<input type="date" value={recordFilters.from} onChange={e => { const next = { ...recordFilters, from: e.target.value }; setRecordFilters(next); void loadRecords(next); }} /></label>
+          <label>To<input type="date" value={recordFilters.to} onChange={e => { const next = { ...recordFilters, to: e.target.value }; setRecordFilters(next); void loadRecords(next); }} /></label>
+        </div>
+        <DataTable
+          columns={['Child', 'DOB', 'Guardian', 'Vaccine', 'Dose', 'Date administered', 'Facility', 'Administered by']}
+          rows={records.map(item => [
+            `${item.childFirstName} ${item.childLastName}`,
+            item.childDateOfBirth,
+            item.guardianFullName ?? item.guardianPhoneNumber ?? '-',
+            item.vaccineName ?? item.vaccineId,
+            item.doseName,
+            item.dateAdministered,
+            item.facilityName ?? item.facilityId,
+            item.administeredByUserName ?? '-'
+          ])}
+        />
+      </section>
     </>
   );
 }

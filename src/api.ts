@@ -11,6 +11,7 @@ import type {
   GenerateScheduleAppointmentsResult,
   Guardian,
   ImmunizationRecord,
+  ImmunizationRecordDetail,
   Paged,
   SmsDelivery,
   SmsNotification,
@@ -199,6 +200,17 @@ export async function exportSyncReliabilityCsv() {
 
 export async function exportFacilityPerformanceCsv() {
   await downloadReportCsv('/api/reports/facility-performance/export', 'facility-performance.csv');
+}
+
+export async function fetchImmunizationRecords(params?: { facilityId?: string; childId?: string; from?: string; to?: string; page?: number; pageSize?: number }) {
+  return (await api.get<Paged<ImmunizationRecordDetail>>('/api/reports/immunization-records', { params: { pageSize: 50, ...params } })).data;
+}
+
+export async function exportImmunizationRecordsCsv(params?: { facilityId?: string; childId?: string; from?: string; to?: string }) {
+  const query = Object.fromEntries(Object.entries(params ?? {}).filter(([, value]) => value));
+  const search = new URLSearchParams(query).toString();
+  const path = search ? `/api/reports/immunization-records/export?${search}` : '/api/reports/immunization-records/export';
+  await downloadReportCsv(path, 'immunization-records.csv');
 }
 
 export async function fetchFacilities() {
