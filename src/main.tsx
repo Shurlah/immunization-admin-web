@@ -27,8 +27,11 @@ import {
   createSchedule,
   createUser,
   createVaccine,
+  deleteChild,
+  deleteUser,
   disableUser,
   disableVaccine,
+  enableUser,
   exportChildrenCsv,
   exportCoverageCsv,
   exportFacilityPerformanceCsv,
@@ -65,7 +68,9 @@ import {
   onSessionChange,
   setSession,
   sendTestSms,
+  updateChild,
   updateFacility,
+  updateGuardian,
   updateUser,
   updateVaccine
 } from './api';
@@ -170,7 +175,7 @@ function App() {
         </aside>
         <section className="content">
           {view === 'dashboard' && <Dashboard onNavigate={navigateTo} />}
-          {view === 'users' && <UsersView />}
+          {view === 'users' && <UsersView session={session} />}
           {view === 'facilities' && <FacilitiesView />}
           {view === 'children' && <ChildrenView session={session} />}
           {view === 'vaccines' && <VaccinesView />}
@@ -262,7 +267,7 @@ function Dashboard({ onNavigate }: { onNavigate: (view: ViewKey, appointmentSect
   );
 }
 
-function UsersView() {
+function UsersView({ session }: { session: AuthSession }) {
   const [users, setUsers] = useState<User[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [query, setQuery] = useState('');
@@ -297,6 +302,37 @@ function UsersView() {
     }
   }
 
+  async function toggleActive(user: User) {
+    if (user.id === session.userId) {
+      setNotice({ tone: 'error', text: 'You cannot disable your own account.' });
+      return;
+    }
+    try {
+      if (user.isActive) await disableUser(user.id);
+      else await enableUser(user.id);
+      setNotice({ tone: 'ok', text: user.isActive ? 'User disabled.' : 'User enabled.' });
+      await load();
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
+  }
+
+  async function remove(user: User) {
+    if (user.id === session.userId) {
+      setNotice({ tone: 'error', text: 'You cannot delete your own account.' });
+      return;
+    }
+    if (!window.confirm(`Delete ${user.fullName}? This cannot be undone.`)) return;
+    try {
+      await deleteUser(user.id);
+      setNotice({ tone: 'ok', text: 'User deleted.' });
+      if (editing?.id === user.id) setEditing(null);
+      await load();
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
+  }
+
   const filtered = useMemo(() => users.filter(user => `${user.fullName} ${user.email} ${user.role}`.toLowerCase().includes(query.toLowerCase())), [query, users]);
   return (
     <>
@@ -316,7 +352,7 @@ function UsersView() {
         </form>
         <section>
           <SearchBox value={query} onChange={setQuery} />
-          <DataTable columns={['Name', 'Email', 'Role', 'Status', 'Actions']} rows={filtered.map(user => [user.fullName, user.email, user.role, status(user.isActive ? 'Active' : 'Disabled'), <RowActions><button onClick={() => edit(user)}>Edit</button><button onClick={() => void disableUser(user.id).then(load)}>Disable</button></RowActions>])} />
+          <DataTable columns={['Name', 'Email', 'Role', 'Status', 'Actions']} rows={filtered.map(user => [user.fullName, user.email, user.role, status(user.isActive ? 'Active' : 'Disabled'), <RowActions><button onClick={() => edit(user)}>Edit</button>{user.id !== session.userId && <button onClick={() => void toggleActive(user)}>{user.isActive ? 'Disable' : 'Enable'}</button>}{user.id !== session.userId && <button onClick={() => void remove(user)}>Delete</button>}</RowActions>])} />
         </section>
       </Workspace>
     </>
@@ -386,6 +422,7 @@ function ChildrenView({ session }: { session: AuthSession }) {
   const [exportFilters, setExportFilters] = useState({ facilityId: '', from: '', to: '', startMonth: '', endMonth: '', startYear: '', endYear: '' });
   const [guardian, setGuardian] = useState({ fullName: '', phoneNumber: '', relationshipToChild: '', address: '', ward: '' });
   const [child, setChild] = useState({ firstName: '', middleName: '', lastName: '', dateOfBirth: today(), sex: 'Female', facilityId: session.facilityId ?? '' });
+  const [editingChild, setEditingChild] = useState<Child | null>(null);
 
   async function load() {
     const [childData, duplicateData, facilityData] = await Promise.all([fetchChildren(), fetchDuplicates(), fetchFacilities()]);
@@ -412,14 +449,52 @@ function ChildrenView({ session }: { session: AuthSession }) {
     setChildren(await fetchChildren({ q: clean(query) ?? undefined, phone: clean(phone) ?? undefined }));
   }
 
+  function edit(item: Child) {
+    setEditingChild(item);
+    setGuardian({
+      fullName: item.guardian?.fullName ?? '',
+      phoneNumber: item.guardian?.phoneNumber ?? '',
+      relationshipToChild: item.guardian?.relationshipToChild ?? '',
+      address: item.guardian?.address ?? '',
+      ward: item.guardian?.ward ?? ''
+    });
+    setChild({ firstName: item.firstName, middleName: item.middleName ?? '', lastName: item.lastName, dateOfBirth: item.dateOfBirth, sex: item.sex, facilityId: item.facilityId });
+  }
+
+  function cancelEdit() {
+    setEditingChild(null);
+    setGuardian({ fullName: '', phoneNumber: '', relationshipToChild: '', address: '', ward: '' });
+    setChild({ firstName: '', middleName: '', lastName: '', dateOfBirth: today(), sex: 'Female', facilityId: session.facilityId ?? '' });
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     try {
-      const savedGuardian = await createGuardian({ ...guardian, alternativePhoneNumber: null });
-      await createChild({ ...child, guardianId: savedGuardian.id, createdByUserId: session.userId, createdByDeviceId: null, middleName: clean(child.middleName) });
-      setNotice({ tone: 'ok', text: 'Child and caregiver registered.' });
-      setGuardian({ fullName: '', phoneNumber: '', relationshipToChild: '', address: '', ward: '' });
-      setChild({ firstName: '', middleName: '', lastName: '', dateOfBirth: today(), sex: 'Female', facilityId: session.facilityId ?? '' });
+      if (editingChild) {
+        await updateGuardian(editingChild.guardianId, {
+          ...guardian,
+          alternativePhoneNumber: editingChild.guardian?.alternativePhoneNumber ?? null
+        });
+        await updateChild(editingChild.id, { ...child, guardianId: editingChild.guardianId, updatedByUserId: session.userId, middleName: clean(child.middleName) });
+        setNotice({ tone: 'ok', text: 'Child and caregiver updated.' });
+      } else {
+        const savedGuardian = await createGuardian({ ...guardian, alternativePhoneNumber: null });
+        await createChild({ ...child, guardianId: savedGuardian.id, createdByUserId: session.userId, createdByDeviceId: null, middleName: clean(child.middleName) });
+        setNotice({ tone: 'ok', text: 'Child and caregiver registered.' });
+      }
+      cancelEdit();
+      await load();
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
+  }
+
+  async function remove(item: Child) {
+    if (!window.confirm(`Delete ${item.firstName} ${item.lastName}? This removes the child from reports and reminders.`)) return;
+    try {
+      await deleteChild(item.id, session.userId);
+      setNotice({ tone: 'ok', text: 'Child deleted.' });
+      if (editingChild?.id === item.id) cancelEdit();
       await load();
     } catch (error) {
       setNotice({ tone: 'error', text: messageFrom(error) });
@@ -467,9 +542,9 @@ function ChildrenView({ session }: { session: AuthSession }) {
       <NoticeBox notice={notice} />
       <Workspace>
         <form className="panel-form" onSubmit={submit}>
-          <h2>Register child</h2>
+          <h2>{editingChild ? `Update ${editingChild.firstName} ${editingChild.lastName}` : 'Register child'}</h2>
           <label>Caregiver name<input value={guardian.fullName} onChange={e => setGuardian({ ...guardian, fullName: e.target.value })} required /></label>
-          <label>Caregiver phone<input value={guardian.phoneNumber} onChange={e => setGuardian({ ...guardian, phoneNumber: e.target.value })} required /></label>
+          <label>Caregiver phone<input value={guardian.phoneNumber} onChange={e => setGuardian({ ...guardian, phoneNumber: e.target.value })} placeholder="0801... or +234801..." required /></label>
           <label>Relationship<input value={guardian.relationshipToChild} onChange={e => setGuardian({ ...guardian, relationshipToChild: e.target.value })} /></label>
           <label>Child first name<input value={child.firstName} onChange={e => setChild({ ...child, firstName: e.target.value })} required /></label>
           <label>Middle name<input value={child.middleName} onChange={e => setChild({ ...child, middleName: e.target.value })} /></label>
@@ -477,7 +552,8 @@ function ChildrenView({ session }: { session: AuthSession }) {
           <label>Date of birth<input type="date" value={child.dateOfBirth} onChange={e => setChild({ ...child, dateOfBirth: e.target.value })} required /></label>
           <label>Sex<select value={child.sex} onChange={e => setChild({ ...child, sex: e.target.value })}><option>Female</option><option>Male</option></select></label>
           <label>Facility<select value={child.facilityId} onChange={e => setChild({ ...child, facilityId: e.target.value })} required><option value="">Select facility</option>{facilities.map(facility => <option key={facility.id} value={facility.id}>{facility.name}</option>)}</select></label>
-          <button><Plus size={16} />Register child</button>
+          <button><Plus size={16} />{editingChild ? 'Save changes' : 'Register child'}</button>
+          {editingChild && <button type="button" className="secondary" onClick={cancelEdit}>Cancel edit</button>}
         </form>
         <section>
           <div className="filters"><SearchBox value={query} onChange={setQuery} placeholder="Search child name" /><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Caregiver phone" /><button onClick={() => void search()}><Search size={16} />Search</button></div>
@@ -509,7 +585,7 @@ function ChildrenView({ session }: { session: AuthSession }) {
             <DataTable columns={['Vaccine', 'Dose', 'Due date', 'Weeks', 'Status', 'Scheduled date']} rows={dueVaccines.map(item => [item.vaccineName, item.doseName, item.dueDate, item.recommendedAgeInWeeks, status(item.status), item.scheduledAppointmentDate ?? '-'])} />
             {scheduleResult && <p className="muted">Last generation ran through {scheduleResult.throughDate} and created {scheduleResult.createdCount} appointment(s).</p>}
           </section>
-          <DataTable columns={['Child', 'DOB', 'Sex', 'Caregiver', 'Duplicate']} rows={children.map(item => [`${item.firstName} ${item.lastName}`, item.dateOfBirth, item.sex, item.guardian?.phoneNumber ?? item.guardianId, item.isPossibleDuplicate ? status('Possible') : 'No'])} />
+          <DataTable columns={['Child', 'DOB', 'Sex', 'Caregiver', 'Duplicate', 'Actions']} rows={children.map(item => [`${item.firstName} ${item.lastName}`, item.dateOfBirth, item.sex, item.guardian?.phoneNumber ?? item.guardianId, item.isPossibleDuplicate ? status('Possible') : 'No', <RowActions><button onClick={() => edit(item)}>Edit</button><button onClick={() => void remove(item)}>Delete</button></RowActions>])} />
           <DataTable title="Duplicate review queue" columns={['Child', 'Caregiver', 'Facility']} rows={duplicates.map(item => [`${item.firstName} ${item.lastName}`, item.guardian?.phoneNumber ?? '-', item.facilityId])} />
         </section>
       </Workspace>

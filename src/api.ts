@@ -229,6 +229,14 @@ export async function disableUser(id: string) {
   await api.post(`/api/users/${id}/disable`);
 }
 
+export async function enableUser(id: string) {
+  await api.post(`/api/users/${id}/enable`);
+}
+
+export async function deleteUser(id: string) {
+  await api.delete(`/api/users/${id}`);
+}
+
 export async function fetchVaccines() {
   return (await api.get<Vaccine[]>('/api/vaccines')).data;
 }
@@ -292,8 +300,20 @@ export async function createGuardian(payload: Omit<Guardian, 'id'>) {
   return (await api.post<Guardian>('/api/guardians', payload)).data;
 }
 
+export async function updateGuardian(id: string, payload: Omit<Guardian, 'id'>) {
+  await api.put(`/api/guardians/${id}`, payload);
+}
+
 export async function createChild(payload: { firstName: string; middleName?: string | null; lastName: string; dateOfBirth: string; sex: string; guardianId: string; facilityId: string; createdByUserId: string; createdByDeviceId?: string | null }) {
   return (await api.post<Child>('/api/children', { id: null, ...payload })).data;
+}
+
+export async function updateChild(id: string, payload: { firstName: string; middleName?: string | null; lastName: string; dateOfBirth: string; sex: string; guardianId: string; facilityId: string; updatedByUserId?: string | null }) {
+  await api.put(`/api/children/${id}`, payload);
+}
+
+export async function deleteChild(id: string, deletedByUserId?: string | null) {
+  await api.delete(`/api/children/${id}`, { params: deletedByUserId ? { deletedByUserId } : undefined });
 }
 
 export async function recordImmunization(payload: { childId: string; vaccineId: string; doseName: string; dateAdministered: string; facilityId: string; administeredByUserId: string; createdByDeviceId?: string | null; notes?: string | null }) {
