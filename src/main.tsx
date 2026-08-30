@@ -13,13 +13,10 @@ import {
   Search,
   Send,
   ShieldCheck,
-  Smartphone,
   Syringe,
   Users
 } from 'lucide-react';
 import {
-  approveDevice,
-  completeAppointment,
   createAppointment,
   createChild,
   createFacility,
@@ -27,6 +24,7 @@ import {
   createSchedule,
   createUser,
   createVaccine,
+  deleteAppointment,
   deleteChild,
   deleteSmsNotification,
   deleteUser,
@@ -45,12 +43,10 @@ import {
   fetchChildImmunizations,
   fetchChildren,
   fetchCoverage,
-  fetchDueVaccines,
   fetchDuplicates,
   fetchFacilities,
   fetchFacilityPerformance,
   fetchImmunizationRecords,
-  fetchMissedAppointments,
   fetchSmsDelivery,
   fetchSmsNotifications,
   fetchSyncDownload,
@@ -59,14 +55,11 @@ import {
   fetchVaccineSchedules,
   fetchUsers,
   fetchVaccines,
-  generateScheduleAppointments,
   loadSession,
   login,
   logout,
-  markAppointmentMissed,
   recordImmunization,
   refreshSession,
-  registerDevice,
   roleOptions,
   onSessionChange,
   setSession,
@@ -77,11 +70,11 @@ import {
   updateUser,
   updateVaccine
 } from './api';
-import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, DueVaccineItem, Facility, FacilityPerformance, GenerateScheduleAppointmentsResult, ImmunizationRecord, ImmunizationRecordDetail, MissedAppointmentDetail, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine, VaccineSchedule } from './types';
+import type { Appointment, AuditLog, AuthSession, Child, DashboardMetrics, Facility, FacilityPerformance, ImmunizationRecord, ImmunizationRecordDetail, SmsDelivery, SmsNotification, SyncReliability, User, Vaccine, VaccineSchedule } from './types';
 import './styles.css';
 
-type ViewKey = 'dashboard' | 'users' | 'facilities' | 'children' | 'vaccines' | 'appointments' | 'reports' | 'sync' | 'sms' | 'audit' | 'devices';
-type AppointmentSection = 'schedule' | 'record' | 'history';
+type ViewKey = 'dashboard' | 'users' | 'facilities' | 'children' | 'vaccines' | 'appointments' | 'reports' | 'sync' | 'sms' | 'audit';
+type AppointmentSection = 'create' | 'status' | 'record' | 'history';
 type Notice = { tone: 'ok' | 'error'; text: string } | null;
 
 const emptyFacility = { name: '', code: '', address: '', ward: '', lga: 'Alimosho', state: 'Lagos' };
@@ -90,7 +83,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 function App() {
   const [session, setLocalSession] = useState<AuthSession | null>(() => loadSession());
   const [view, setView] = useState<ViewKey>('dashboard');
-  const [appointmentSection, setAppointmentSection] = useState<AppointmentSection>('schedule');
+  const [appointmentSection, setAppointmentSection] = useState<AppointmentSection>('create');
   const [showSessionWarning, setShowSessionWarning] = useState(false);
   const [warningBusy, setWarningBusy] = useState(false);
 
@@ -172,7 +165,6 @@ function App() {
             <NavButton icon={<Database />} active={view === 'sync'} onClick={() => navigateTo('sync')} label="Sync" />
             <NavButton icon={<Bell />} active={view === 'sms'} onClick={() => navigateTo('sms')} label="SMS" />
             <NavButton icon={<ShieldCheck />} active={view === 'audit'} onClick={() => navigateTo('audit')} label="Audit" />
-            <NavButton icon={<Smartphone />} active={view === 'devices'} onClick={() => navigateTo('devices')} label="Devices" />
           </nav>
           <button className="logout" onClick={signOut}><LogOut size={18} /> Sign out</button>
         </aside>
@@ -187,7 +179,6 @@ function App() {
           {view === 'sync' && <SyncView />}
           {view === 'sms' && <SmsView />}
           {view === 'audit' && <AuditView />}
-          {view === 'devices' && <DevicesView />}
         </section>
       </main>
       {showSessionWarning && (
@@ -414,10 +405,6 @@ function ChildrenView({ session }: { session: AuthSession }) {
   const [children, setChildren] = useState<Child[]>([]);
   const [duplicates, setDuplicates] = useState<Child[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
-  const [selectedChildId, setSelectedChildId] = useState('');
-  const [dueVaccines, setDueVaccines] = useState<DueVaccineItem[]>([]);
-  const [scheduleResult, setScheduleResult] = useState<GenerateScheduleAppointmentsResult | null>(null);
-  const [scheduleThroughDate, setScheduleThroughDate] = useState(addDays(today(), 84));
   const [query, setQuery] = useState('');
   const [phone, setPhone] = useState('');
   const [notice, setNotice] = useState<Notice>(null);
@@ -432,21 +419,8 @@ function ChildrenView({ session }: { session: AuthSession }) {
     setChildren(childData);
     setDuplicates(duplicateData);
     setFacilities(facilityData);
-    setSelectedChildId(current => current || childData[0]?.id || '');
   }
   useEffect(() => { void load(); }, []);
-
-  useEffect(() => {
-    if (!selectedChildId) {
-      setDueVaccines([]);
-      setScheduleResult(null);
-      return;
-    }
-
-    void fetchDueVaccines(selectedChildId)
-      .then(setDueVaccines)
-      .catch(error => setNotice({ tone: 'error', text: messageFrom(error) }));
-  }, [selectedChildId]);
 
   async function search() {
     setChildren(await fetchChildren({ q: clean(query) ?? undefined, phone: clean(phone) ?? undefined }));
@@ -523,22 +497,6 @@ function ChildrenView({ session }: { session: AuthSession }) {
     }
   }
 
-  async function generateAppointmentsFromSchedule() {
-    if (!selectedChildId) return;
-
-    try {
-      const result = await generateScheduleAppointments(selectedChildId, {
-        throughDate: clean(scheduleThroughDate) ?? undefined,
-        createdByUserId: session.userId
-      });
-      setScheduleResult(result);
-      setNotice({ tone: 'ok', text: result.createdCount > 0 ? `${result.createdCount} appointment(s) generated from vaccine schedules.` : 'No new appointments were generated for the selected horizon.' });
-      setDueVaccines(await fetchDueVaccines(selectedChildId));
-    } catch (error) {
-      setNotice({ tone: 'error', text: messageFrom(error) });
-    }
-  }
-
   return (
     <>
       <Header title="Children" subtitle="Register, search, and review duplicate flags" />
@@ -554,7 +512,7 @@ function ChildrenView({ session }: { session: AuthSession }) {
           <label>Last name<input value={child.lastName} onChange={e => setChild({ ...child, lastName: e.target.value })} required /></label>
           <label>Date of birth<input type="date" value={child.dateOfBirth} onChange={e => setChild({ ...child, dateOfBirth: e.target.value })} required /></label>
           <label>Sex<select value={child.sex} onChange={e => setChild({ ...child, sex: e.target.value })}><option>Female</option><option>Male</option></select></label>
-          <label>Facility<select value={child.facilityId} onChange={e => setChild({ ...child, facilityId: e.target.value })} required><option value="">Select facility</option>{facilities.map(facility => <option key={facility.id} value={facility.id}>{facility.name}</option>)}</select></label>
+          <label>Facility<select value={child.facilityId} onChange={e => setChild({ ...child, facilityId: e.target.value })} required disabled={!!session.facilityId}><option value="">Select facility</option>{facilities.map(facility => <option key={facility.id} value={facility.id}>{facility.name}</option>)}</select></label>
           <button><Plus size={16} />{editingChild ? 'Save changes' : 'Register child'}</button>
           {editingChild && <button type="button" className="secondary" onClick={cancelEdit}>Cancel edit</button>}
         </form>
@@ -575,18 +533,6 @@ function ChildrenView({ session }: { session: AuthSession }) {
               {exportMode === 'year' && <label>Start year<input type="number" min="1" step="1" value={exportFilters.startYear} onChange={e => setExportFilters({ ...exportFilters, startYear: e.target.value })} placeholder="2025" /></label>}
               {exportMode === 'year' && <label>End year<input type="number" min="1" step="1" value={exportFilters.endYear} onChange={e => setExportFilters({ ...exportFilters, endYear: e.target.value })} placeholder="2026" /></label>}
             </div>
-          </section>
-          <section className="work-panel export-panel">
-            <div className="export-header">
-              <h2>Child vaccine schedule</h2>
-              <button onClick={() => void generateAppointmentsFromSchedule()} disabled={!selectedChildId}><CalendarDays size={16} />Generate appointments</button>
-            </div>
-            <div className="filters export-filters">
-              <label>Child<select value={selectedChildId} onChange={e => setSelectedChildId(e.target.value)}><option value="">Select child</option>{children.map(item => <option key={item.id} value={item.id}>{item.firstName} {item.lastName}</option>)}</select></label>
-              <label>Generate through<input type="date" value={scheduleThroughDate} onChange={e => setScheduleThroughDate(e.target.value)} /></label>
-            </div>
-            <DataTable columns={['Vaccine', 'Dose', 'Due date', 'Weeks', 'Status', 'Scheduled date']} rows={dueVaccines.map(item => [item.vaccineName, item.doseName, item.dueDate, item.recommendedAgeInWeeks, status(item.status), item.scheduledAppointmentDate ?? '-'])} />
-            {scheduleResult && <p className="muted">Last generation ran through {scheduleResult.throughDate} and created {scheduleResult.createdCount} appointment(s).</p>}
           </section>
           <DataTable columns={['Child', 'DOB', 'Sex', 'Caregiver', 'Duplicate', 'Actions']} rows={children.map(item => [`${item.firstName} ${item.lastName}`, item.dateOfBirth, item.sex, item.guardian?.phoneNumber ?? item.guardianId, item.isPossibleDuplicate ? status('Possible') : 'No', <RowActions><button onClick={() => edit(item)}>Edit</button><button onClick={() => void remove(item)}>Delete</button></RowActions>])} />
           <DataTable title="Duplicate review queue" columns={['Child', 'Caregiver', 'Facility']} rows={duplicates.map(item => [`${item.firstName} ${item.lastName}`, item.guardian?.phoneNumber ?? '-', item.facilityId])} />
@@ -749,25 +695,22 @@ function AppointmentsView({
     try {
       await recordImmunization({ ...immunization, administeredByUserId: session.userId, createdByDeviceId: null, notes: clean(immunization.notes) });
       setHistoryChildId(immunization.childId);
-      setActiveSection('history');
-      setNotice({ tone: 'ok', text: 'Immunization recorded. The child history has been refreshed below.' });
+      setNotice({ tone: 'ok', text: 'Immunization recorded. The linked appointment (if any) has been marked completed automatically.' });
       await load();
     } catch (error) {
       setNotice({ tone: 'error', text: messageFrom(error) });
     }
   }
 
-  function startRecordingFromAppointment(appointment: Appointment) {
-    setImmunization({
-      childId: appointment.childId,
-      vaccineId: appointment.vaccineId,
-      doseName: appointment.doseName,
-      facilityId: appointment.facilityId,
-      dateAdministered: today(),
-      notes: ''
-    });
-    setHistoryChildId(appointment.childId);
-    setActiveSection('record');
+  async function removeAppointment(appointment: Appointment) {
+    if (!window.confirm(`Delete this appointment for ${childName(children, appointment.childId)}?`)) return;
+    try {
+      await deleteAppointment(appointment.id);
+      setNotice({ tone: 'ok', text: 'Appointment deleted.' });
+      await load();
+    } catch (error) {
+      setNotice({ tone: 'error', text: messageFrom(error) });
+    }
   }
 
   const filteredAppointments = appointments.filter(item => {
@@ -782,40 +725,41 @@ function AppointmentsView({
       <Header title="Appointments" subtitle="Schedule visits, mark outcomes, and record vaccinations" />
       <NoticeBox notice={notice} />
       <section className="section-tabs" aria-label="Appointment workflows">
-        <button className={activeSection === 'schedule' ? 'tab-active' : 'secondary'} onClick={() => setActiveSection('schedule')}>Schedule visits</button>
+        <button className={activeSection === 'create' ? 'tab-active' : 'secondary'} onClick={() => setActiveSection('create')}>Create appointment</button>
+        <button className={activeSection === 'status' ? 'tab-active' : 'secondary'} onClick={() => setActiveSection('status')}>Status</button>
         <button className={activeSection === 'record' ? 'tab-active' : 'secondary'} onClick={() => setActiveSection('record')}>Record immunization</button>
-        <button className={activeSection === 'history' ? 'tab-active' : 'secondary'} onClick={() => setActiveSection('history')}>Recorded history</button>
+        <button className={activeSection === 'history' ? 'tab-active' : 'secondary'} onClick={() => setActiveSection('history')}>Completed Immunization</button>
       </section>
       <Workspace>
-        {activeSection === 'schedule' && (
-          <>
-            <div className="stack">
-              <RecordForm title="Create appointment" data={form} setData={setForm} children={children} vaccines={vaccines} facilities={facilities} dateKey="appointmentDate" onSubmit={addAppointment} submit="Schedule" />
-            </div>
-            <section>
-              <section className="work-panel filters">
-                <label>Status view<select value={appointmentFilter} onChange={e => setAppointmentFilter(e.target.value as 'all' | 'scheduled' | 'completed' | 'missed')}>
-                  <option value="all">All appointments</option>
-                  <option value="scheduled">Scheduled</option>
-                  <option value="completed">Completed</option>
-                  <option value="missed">Missed</option>
-                </select></label>
-              </section>
-              <DataTable columns={['Date', 'Child', 'Dose', 'Status', 'Actions']} rows={filteredAppointments.map(item => [item.appointmentDate, childName(children, item.childId), item.doseName, status(item.status), <RowActions><button onClick={() => startRecordingFromAppointment(item)}>Record dose</button><button onClick={() => void completeAppointment(item.id).then(load)}>Complete</button><button onClick={() => void markAppointmentMissed(item.id).then(load)}>Missed</button></RowActions>])} />
+        {activeSection === 'create' && (
+          <div className="stack">
+            <RecordForm title="Create appointment" data={form} setData={setForm} children={children} vaccines={vaccines} facilities={facilities} dateKey="appointmentDate" onSubmit={addAppointment} submit="Schedule" lockFacility={!!session.facilityId} />
+          </div>
+        )}
+        {activeSection === 'status' && (
+          <section style={{ gridColumn: '1 / -1' }}>
+            <section className="work-panel filters">
+              <label>Status view<select value={appointmentFilter} onChange={e => setAppointmentFilter(e.target.value as 'all' | 'scheduled' | 'completed' | 'missed')}>
+                <option value="all">All appointments</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="completed">Completed</option>
+                <option value="missed">Missed</option>
+              </select></label>
             </section>
-          </>
+            <DataTable columns={['Date', 'Child', 'Dose', 'Status', 'Actions']} rows={filteredAppointments.map(item => [item.appointmentDate, childName(children, item.childId), item.doseName, status(item.status), item.status.toLowerCase() !== 'completed' ? <RowActions><button onClick={() => void removeAppointment(item)}>Delete</button></RowActions> : '-'])} />
+          </section>
         )}
         {activeSection === 'record' && (
           <>
             <div className="stack">
-              <RecordForm title="Record immunization" data={immunization} setData={setDataAndTrackChild(setImmunization, setHistoryChildId)} children={children} vaccines={vaccines} facilities={facilities} dateKey="dateAdministered" onSubmit={addImmunization} submit="Record" includeNotes />
+              <RecordForm title="Record immunization" data={immunization} setData={setDataAndTrackChild(setImmunization, setHistoryChildId)} children={children} vaccines={vaccines} facilities={facilities} dateKey="dateAdministered" onSubmit={addImmunization} submit="Record" includeNotes lockFacility={!!session.facilityId} />
             </div>
             <section>
               <section className="work-panel record-summary">
                 <h2>Ready to record</h2>
-                <p>Select a child and dose, or use the <strong>Record dose</strong> action from the appointments table to prefill this form.</p>
+                <p>Select a child, vaccine, and dose to record an immunization.</p>
               </section>
-              <DataTable title="Appointments awaiting outcome" columns={['Date', 'Child', 'Dose', 'Status', 'Actions']} rows={appointments.filter(item => item.status.toLowerCase() === 'scheduled').map(item => [item.appointmentDate, childName(children, item.childId), item.doseName, status(item.status), <RowActions><button onClick={() => startRecordingFromAppointment(item)}>Use for record</button><button onClick={() => void completeAppointment(item.id).then(load)}>Complete</button><button onClick={() => void markAppointmentMissed(item.id).then(load)}>Missed</button></RowActions>])} />
+              <DataTable title="Appointments awaiting outcome" columns={['Date', 'Child', 'Dose', 'Status']} rows={appointments.filter(item => ['scheduled', 'missed'].includes(item.status.toLowerCase())).map(item => [item.appointmentDate, childName(children, item.childId), item.doseName, status(item.status)])} />
             </section>
           </>
         )}
@@ -823,7 +767,7 @@ function AppointmentsView({
           <>
             <div className="stack">
               <section className="panel-form">
-                <h2>Recorded immunization history</h2>
+                <h2>Completed immunization history</h2>
                 <label>Child<select value={historyChildId} onChange={e => setHistoryChildId(e.target.value)}>
                   <option value="">Select child</option>
                   {children.map(child => <option key={child.id} value={child.id}>{childName(children, child.id)}</option>)}
@@ -833,7 +777,7 @@ function AppointmentsView({
             </div>
             <section>
               {historyLoading && <section className="work-panel"><p className="muted">Loading immunization history...</p></section>}
-              {!historyLoading && historyChildId && <DataTable title={`Recorded immunizations for ${childName(children, historyChildId)}`} columns={['Date', 'Vaccine', 'Dose', 'Facility', 'Recorded by', 'Notes']} rows={records.map(item => [item.dateAdministered, vaccineName(vaccines, item.vaccineId), item.doseName, facilityName(facilities, item.facilityId), item.administeredByUserId, item.notes ?? '-'])} />}
+              {!historyLoading && historyChildId && <DataTable title={`Recorded immunizations for ${childName(children, historyChildId)}`} columns={['Date', 'Vaccine', 'Dose', 'Facility', 'Recorded by', 'Notes']} rows={records.map(item => [item.dateAdministered, vaccineName(vaccines, item.vaccineId), item.doseName, facilityName(facilities, item.facilityId), item.administeredByUserName ?? item.administeredByUserId, item.notes ?? '-'])} />}
               {!historyLoading && !historyChildId && <section className="work-panel"><p className="muted">Select a child to review the immunization records that have already been captured.</p></section>}
             </section>
           </>
@@ -845,17 +789,16 @@ function AppointmentsView({
 
 function ReportsView() {
   const [coverage, setCoverage] = useState<DashboardMetrics | null>(null);
-  const [missed, setMissed] = useState<MissedAppointmentDetail[]>([]);
   const [sms, setSms] = useState<SmsDelivery | null>(null);
   const [sync, setSync] = useState<SyncReliability | null>(null);
-  const [performance, setPerformance] = useState<FacilityPerformance[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [records, setRecords] = useState<ImmunizationRecordDetail[]>([]);
   const [recordFilters, setRecordFilters] = useState({ facilityId: '', from: '', to: '' });
   const [notice, setNotice] = useState<Notice>(null);
   useEffect(() => {
-    void Promise.all([fetchCoverage(), fetchMissedAppointments(), fetchSmsDelivery(), fetchSyncReliability(), fetchFacilityPerformance(), fetchFacilities()])
-      .then(([a, b, c, d, e, f]) => { setCoverage(a); setMissed(b); setSms(c); setSync(d); setPerformance(e); setFacilities(f); });
+    void Promise.all([fetchCoverage(), fetchSmsDelivery(), fetchSyncReliability(), fetchFacilities()])
+      .then(([a, c, d, f]) => { setCoverage(a); setSms(c); setSync(d); setFacilities(f); })
+      .catch(error => setNotice({ tone: 'error', text: messageFrom(error) }));
     void loadRecords();
   }, []);
 
@@ -888,7 +831,7 @@ function ReportsView() {
       <NoticeBox notice={notice} />
       <div className="metric-grid">
         <Metric icon={<Users />} label="Children" value={coverage?.registeredChildren ?? 0} />
-        <Metric icon={<Bell />} label="Missed appointments" value={missed.length} tone="alert" />
+        <Metric icon={<Bell />} label="Missed appointments" value={coverage?.missedAppointments ?? 0} tone="alert" />
         <Metric icon={<Send />} label="SMS delivered" value={sms?.delivered ?? 0} />
         <Metric icon={<Database />} label="Latest server version" value={sync?.latestServerVersion ?? 0} />
       </div>
@@ -899,20 +842,6 @@ function ReportsView() {
         <button onClick={() => void exportCsv(exportSyncReliabilityCsv, 'Sync reliability export started.')}><Download size={16} />Sync reliability CSV</button>
         <button onClick={() => void exportCsv(exportFacilityPerformanceCsv, 'Facility performance export started.')}><Download size={16} />Facility performance CSV</button>
       </section>
-      <DataTable
-        title="Missed appointments"
-        columns={['Child', 'Guardian', 'Vaccine', 'Dose', 'Facility', 'Appointment date', 'Missed at']}
-        rows={missed.map(item => [
-          item.childFirstName && item.childLastName ? `${item.childFirstName} ${item.childLastName}` : item.childId,
-          item.guardianFullName ?? item.guardianPhoneNumber ?? '-',
-          item.vaccineName ?? item.vaccineId,
-          item.doseName,
-          item.facilityName ?? item.facilityId,
-          item.appointmentDate,
-          item.missedAt ? formatDateTime(item.missedAt) : '-'
-        ])}
-      />
-      <DataTable title="Facility performance" columns={['Facility', 'Children', 'Immunizations', 'Missed']} rows={performance.map(item => [item.name, item.children, item.immunizations, item.missedAppointments])} />
       <section className="work-panel export-panel">
         <div className="export-header">
           <h2>Immunization records</h2>
@@ -1033,62 +962,19 @@ function AuditView() {
         <input type="date" value={filters.to} onChange={e => setFilters({ ...filters, to: e.target.value })} />
         <button onClick={() => void load()}><Search size={16} />Filter</button>
       </section>
-      <DataTable columns={['Time', 'Action', 'Entity', 'Entity ID', 'User']} rows={logs.map(log => [formatDateTime(log.createdAt), log.action, log.entityType, log.entityId ?? '-', log.userId ?? '-'])} />
+      <DataTable columns={['Time', 'Action', 'Entity', 'Entity ID', 'User']} rows={logs.map(log => [formatDateTime(log.createdAt), log.action, log.entityType, log.entityId ?? '-', log.userName ?? '-'])} />
     </>
   );
 }
 
-function DevicesView() {
-  const [notice, setNotice] = useState<Notice>(null);
-  const [registration, setRegistration] = useState({ deviceIdentifier: '', userId: '', facilityId: '', deviceName: '', platform: 'Android' });
-  const [approveId, setApproveId] = useState('');
-  async function submitRegistration(event: React.FormEvent) {
-    event.preventDefault();
-    try {
-      const device = await registerDevice({ ...registration, deviceName: clean(registration.deviceName), platform: clean(registration.platform) });
-      setNotice({ tone: 'ok', text: `Device registered: ${device.id}` });
-    } catch (error) {
-      setNotice({ tone: 'error', text: messageFrom(error) });
-    }
-  }
-  async function submitApproval(event: React.FormEvent) {
-    event.preventDefault();
-    await approveDevice(approveId);
-    setNotice({ tone: 'ok', text: 'Device approved.' });
-  }
-  return (
-    <>
-      <Header title="Devices" subtitle="Register mobile devices and approve known device IDs" />
-      <NoticeBox notice={notice} />
-      <Workspace>
-        <form className="panel-form" onSubmit={submitRegistration}>
-          <h2>Register device</h2>
-          <label>Device identifier<input value={registration.deviceIdentifier} onChange={e => setRegistration({ ...registration, deviceIdentifier: e.target.value })} required /></label>
-          <label>User ID<input value={registration.userId} onChange={e => setRegistration({ ...registration, userId: e.target.value })} required /></label>
-          <label>Facility ID<input value={registration.facilityId} onChange={e => setRegistration({ ...registration, facilityId: e.target.value })} required /></label>
-          <label>Device name<input value={registration.deviceName} onChange={e => setRegistration({ ...registration, deviceName: e.target.value })} /></label>
-          <label>Platform<input value={registration.platform} onChange={e => setRegistration({ ...registration, platform: e.target.value })} /></label>
-          <button><Smartphone size={16} />Register</button>
-        </form>
-        <form className="panel-form" onSubmit={submitApproval}>
-          <h2>Approve device</h2>
-          <p className="muted">The backend has an approval endpoint but no device list endpoint, so approval requires a known device ID.</p>
-          <label>Device ID<input value={approveId} onChange={e => setApproveId(e.target.value)} required /></label>
-          <button><ShieldCheck size={16} />Approve</button>
-        </form>
-      </Workspace>
-    </>
-  );
-}
-
-function RecordForm({ title, data, setData, children, vaccines, facilities, dateKey, onSubmit, submit, includeNotes }: any) {
+function RecordForm({ title, data, setData, children, vaccines, facilities, dateKey, onSubmit, submit, includeNotes, lockFacility }: any) {
   return (
     <form className="panel-form" onSubmit={onSubmit}>
       <h2>{title}</h2>
       <label>Child<select value={data.childId} onChange={e => setData({ ...data, childId: e.target.value })} required><option value="">Select child</option>{children.map((child: Child) => <option key={child.id} value={child.id}>{childName(children, child.id)}</option>)}</select></label>
       <label>Vaccine<select value={data.vaccineId} onChange={e => setData({ ...data, vaccineId: e.target.value })} required><option value="">Select vaccine</option>{vaccines.map((vaccine: Vaccine) => <option key={vaccine.id} value={vaccine.id}>{vaccine.name}</option>)}</select></label>
       <label>Dose<input value={data.doseName} onChange={e => setData({ ...data, doseName: e.target.value })} required /></label>
-      <label>Facility<select value={data.facilityId} onChange={e => setData({ ...data, facilityId: e.target.value })} required><option value="">Select facility</option>{facilities.map((facility: Facility) => <option key={facility.id} value={facility.id}>{facility.name}</option>)}</select></label>
+      <label>Facility<select value={data.facilityId} onChange={e => setData({ ...data, facilityId: e.target.value })} required disabled={!!lockFacility}><option value="">Select facility</option>{facilities.map((facility: Facility) => <option key={facility.id} value={facility.id}>{facility.name}</option>)}</select></label>
       <label>Date<input type="date" value={data[dateKey]} onChange={e => setData({ ...data, [dateKey]: e.target.value })} required /></label>
       {includeNotes && <label>Notes<textarea value={data.notes} onChange={e => setData({ ...data, notes: e.target.value })} /></label>}
       <button><Plus size={16} />{submit}</button>
@@ -1164,12 +1050,6 @@ function clean(value?: string | null) {
 
 function numberOrNull(value: string) {
   return value === '' ? null : Number(value);
-}
-
-function addDays(value: string, days: number) {
-  const date = new Date(`${value}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
 }
 
 function childName(children: Child[], id: string) {

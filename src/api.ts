@@ -353,6 +353,10 @@ export async function markAppointmentMissed(id: string) {
   await api.post(`/api/appointments/${id}/mark-missed`);
 }
 
+export async function deleteAppointment(id: string) {
+  await api.delete(`/api/appointments/${id}`);
+}
+
 export async function fetchSmsNotifications() {
   return (await api.get<Paged<SmsNotification>>('/api/notifications/sms', { params: { pageSize: 100 } })).data.items;
 }
@@ -375,12 +379,4 @@ export async function fetchSyncStatus() {
 
 export async function fetchSyncDownload(sinceVersion: number) {
   return (await api.get('/api/sync/download', { params: { sinceVersion } })).data;
-}
-
-export async function registerDevice(payload: { deviceIdentifier: string; userId: string; facilityId: string; deviceName?: string | null; platform?: string | null }) {
-  return (await api.post('/api/devices/register', payload)).data;
-}
-
-export async function approveDevice(id: string) {
-  await api.post(`/api/devices/${id}/approve`);
 }

@@ -132,6 +132,7 @@ export type ImmunizationRecord = {
   dateAdministered: string;
   facilityId: string;
   administeredByUserId: string;
+  administeredByUserName?: string | null;
   createdByDeviceId?: string | null;
   notes?: string | null;
   isCorrection: boolean;
@@ -154,6 +155,7 @@ export type SmsNotification = {
 export type AuditLog = {
   id: string;
   userId?: string | null;
+  userName?: string | null;
   deviceId?: string | null;
   action: string;
   entityType: string;
