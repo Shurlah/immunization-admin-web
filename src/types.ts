@@ -76,6 +76,7 @@ export type DueVaccineItem = {
   scheduledAppointmentId?: string | null;
   scheduledAppointmentDate?: string | null;
   latestAppointmentStatus?: string | null;
+  reviewReason?: string | null;
 };
 
 export type GeneratedAppointmentItem = {

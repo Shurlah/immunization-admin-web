@@ -250,8 +250,8 @@ export async function deleteUser(id: string) {
   await api.delete(`/api/users/${id}`);
 }
 
-export async function fetchVaccines() {
-  return (await api.get<Vaccine[]>('/api/vaccines')).data;
+export async function fetchVaccines(includeInactive = false) {
+  return (await api.get<Vaccine[]>('/api/vaccines', { params: { includeInactive } })).data;
 }
 
 export async function createVaccine(payload: Omit<Vaccine, 'id' | 'isActive'>) {
@@ -279,7 +279,12 @@ export async function fetchChildren(params?: { q?: string; phone?: string; facil
   if (params?.q || params?.phone || params?.facilityId) {
     return (await api.get<Child[]>('/api/children/search', { params })).data;
   }
-  return (await api.get<Paged<Child>>('/api/children', { params: { pageSize: 100 } })).data.items;
+  const first = (await api.get<Paged<Child>>('/api/children', { params: { page: 1, pageSize: 100 } })).data;
+  const children = [...first.items];
+  for (let page = 2; page <= first.totalPages; page++) {
+    children.push(...(await api.get<Paged<Child>>('/api/children', { params: { page, pageSize: 100 } })).data.items);
+  }
+  return children;
 }
 
 export async function fetchDuplicates() {
@@ -329,7 +334,7 @@ export async function deleteChild(id: string, deletedByUserId?: string | null) {
   await api.delete(`/api/children/${id}`, { params: deletedByUserId ? { deletedByUserId } : undefined });
 }
 
-export async function recordImmunization(payload: { childId: string; vaccineId: string; doseName: string; dateAdministered: string; facilityId: string; administeredByUserId: string; createdByDeviceId?: string | null; notes?: string | null }) {
+export async function recordImmunization(payload: { appointmentId?: string | null; childId: string; vaccineId: string; doseName: string; dateAdministered: string; facilityId: string; administeredByUserId: string; createdByDeviceId?: string | null; notes?: string | null }) {
   return (await api.post<ImmunizationRecord>('/api/immunizations', { id: null, ...payload })).data;
 }
 

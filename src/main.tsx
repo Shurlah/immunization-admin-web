@@ -44,6 +44,7 @@ import {
   fetchChildren,
   fetchCoverage,
   fetchDuplicates,
+  fetchDueVaccines,
   fetchFacilities,
   fetchFacilityPerformance,
   fetchImmunizationRecords,
@@ -622,7 +623,7 @@ function VaccinesView() {
   );
 }
 
-function AppointmentsView({
+export function AppointmentsView({
   session,
   initialSection,
   onSectionChange
@@ -640,13 +641,16 @@ function AppointmentsView({
   const [appointmentFilter, setAppointmentFilter] = useState<'all' | 'scheduled' | 'completed' | 'missed'>('all');
   const [historyChildId, setHistoryChildId] = useState('');
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [reviewChildId, setReviewChildId] = useState('');
+  const [dueVaccines, setDueVaccines] = useState<Awaited<ReturnType<typeof fetchDueVaccines>>>([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [form, setForm] = useState({ childId: '', vaccineId: '', doseName: '', facilityId: session.facilityId ?? '', appointmentDate: today() });
-  const [immunization, setImmunization] = useState({ childId: '', vaccineId: '', doseName: '', facilityId: session.facilityId ?? '', dateAdministered: today(), notes: '' });
+  const [immunization, setImmunization] = useState({ appointmentId: '', childId: '', vaccineId: '', doseName: '', facilityId: session.facilityId ?? '', dateAdministered: today(), notes: '' });
 
   async function load() {
     try {
-      const [appointmentData, childData, vaccineData, facilityData] = await Promise.all([fetchAppointments(), fetchChildren(), fetchVaccines(), fetchFacilities()]);
+      const [appointmentData, childData, vaccineData, facilityData] = await Promise.all([fetchAppointments(), fetchChildren(), fetchVaccines(true), fetchFacilities()]);
       setAppointments(appointmentData);
       setChildren(childData);
       setVaccines(vaccineData);
@@ -693,8 +697,9 @@ function AppointmentsView({
   async function addImmunization(event: React.FormEvent) {
     event.preventDefault();
     try {
-      await recordImmunization({ ...immunization, administeredByUserId: session.userId, createdByDeviceId: null, notes: clean(immunization.notes) });
+      await recordImmunization({ ...immunization, appointmentId: clean(immunization.appointmentId), administeredByUserId: session.userId, createdByDeviceId: null, notes: clean(immunization.notes) });
       setHistoryChildId(immunization.childId);
+      setImmunization({ appointmentId: '', childId: '', vaccineId: '', doseName: '', facilityId: session.facilityId ?? '', dateAdministered: today(), notes: '' });
       setNotice({ tone: 'ok', text: 'Immunization recorded. The linked appointment (if any) has been marked completed automatically.' });
       await load();
     } catch (error) {
@@ -702,6 +707,23 @@ function AppointmentsView({
     }
   }
 
+  function openAppointment(appointment: Appointment) {
+    setImmunization({ appointmentId: appointment.id, childId: appointment.childId, vaccineId: appointment.vaccineId, doseName: appointment.doseName, facilityId: appointment.facilityId, dateAdministered: today(), notes: '' });
+    setHistoryChildId(appointment.childId);
+    setNotice(null);
+    setActiveSection('record');
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    setDueVaccines([]);
+    if (!reviewChildId) { setReviewLoading(false); return; }
+    setReviewLoading(true);
+    void fetchDueVaccines(reviewChildId).then(items => { if (!cancelled) setDueVaccines(items); })
+      .catch(error => { if (!cancelled) setNotice({ tone: 'error', text: messageFrom(error) }); })
+      .finally(() => { if (!cancelled) setReviewLoading(false); });
+    return () => { cancelled = true; };
+  }, [reviewChildId, appointments]);
   async function removeAppointment(appointment: Appointment) {
     if (!window.confirm(`Delete this appointment for ${childName(children, appointment.childId)}?`)) return;
     try {
@@ -746,7 +768,13 @@ function AppointmentsView({
                 <option value="missed">Missed</option>
               </select></label>
             </section>
-            <DataTable columns={['Date', 'Child', 'Dose', 'Status', 'Actions']} rows={filteredAppointments.map(item => [item.appointmentDate, childName(children, item.childId), item.doseName, status(item.status), item.status.toLowerCase() !== 'completed' ? <RowActions><button onClick={() => void removeAppointment(item)}>Delete</button></RowActions> : '-'])} />
+            <section className="work-panel filters">
+              <label>Review a child's vaccine schedule<select value={reviewChildId} onChange={e => setReviewChildId(e.target.value)}><option value="">Select child</option>{children.map(child => <option key={child.id} value={child.id}>{childName(children, child.id)}</option>)}</select></label>
+              <p>Upcoming doses are scheduled automatically for the next 12 weeks. Overdue doses and previous bookings need staff review.</p>
+            </section>
+            {reviewLoading && <p>Loading vaccine schedule...</p>}
+            {reviewChildId && !reviewLoading && <DataTable title="Vaccine schedule review" columns={['Due date', 'Vaccine', 'Dose', 'Status', 'Review']} rows={dueVaccines.map(item => [item.dueDate, item.vaccineName, item.doseName, status(item.status), item.reviewReason ?? (item.status === 'DueToday' ? 'Contact staff to arrange today’s visit.' : '-')])} />}
+            <DataTable columns={['Date', 'Child', 'Vaccine', 'Dose', 'Status', 'Actions']} rows={filteredAppointments.map(item => [item.appointmentDate, childName(children, item.childId), vaccineName(vaccines, item.vaccineId), item.doseName, item.status.toLowerCase() === 'scheduled' ? <button type="button" className="secondary" onClick={() => openAppointment(item)} aria-label={`Record immunization for ${childName(children, item.childId)}, ${vaccineName(vaccines, item.vaccineId)}, ${item.doseName}`}>Scheduled</button> : status(item.status), item.status.toLowerCase() !== 'completed' ? <RowActions><button onClick={() => void removeAppointment(item)}>Delete</button></RowActions> : '-'])} />
           </section>
         )}
         {activeSection === 'record' && (
@@ -756,10 +784,10 @@ function AppointmentsView({
             </div>
             <section>
               <section className="work-panel record-summary">
-                <h2>Ready to record</h2>
+                <h2>Ready to record</h2>{immunization.appointmentId && <><p>Recording the selected appointment. Confirm the administration date before submitting.</p><button type="button" className="secondary" onClick={() => setImmunization({ ...immunization, appointmentId: '' })}>Enter a different immunization</button></>}
                 <p>Select a child, vaccine, and dose to record an immunization.</p>
               </section>
-              <DataTable title="Appointments awaiting outcome" columns={['Date', 'Child', 'Dose', 'Status']} rows={appointments.filter(item => ['scheduled', 'missed'].includes(item.status.toLowerCase())).map(item => [item.appointmentDate, childName(children, item.childId), item.doseName, status(item.status)])} />
+              <DataTable title="Appointments awaiting outcome" columns={['Date', 'Child', 'Vaccine', 'Dose', 'Status']} rows={appointments.filter(item => ['scheduled', 'missed'].includes(item.status.toLowerCase())).map(item => [item.appointmentDate, childName(children, item.childId), vaccineName(vaccines, item.vaccineId), item.doseName, item.status.toLowerCase() === 'scheduled' ? <button type="button" className="secondary" onClick={() => openAppointment(item)} aria-label={`Record immunization for ${childName(children, item.childId)}, ${vaccineName(vaccines, item.vaccineId)}, ${item.doseName}`}>Scheduled</button> : status(item.status)])} />
             </section>
           </>
         )}
@@ -962,7 +990,7 @@ function AuditView() {
         <input type="date" value={filters.to} onChange={e => setFilters({ ...filters, to: e.target.value })} />
         <button onClick={() => void load()}><Search size={16} />Filter</button>
       </section>
-      <DataTable columns={['Time', 'Action', 'Entity', 'Entity ID', 'User']} rows={logs.map(log => [formatDateTime(log.createdAt), log.action, log.entityType, log.entityId ?? '-', log.userName ?? '-'])} />
+      <DataTable columns={['Time', 'Action', 'Entity', 'User']} rows={logs.map(log => [formatDateTime(log.createdAt), log.action, log.entityType, log.userName ?? '-'])} />
     </>
   );
 }
@@ -971,10 +999,10 @@ function RecordForm({ title, data, setData, children, vaccines, facilities, date
   return (
     <form className="panel-form" onSubmit={onSubmit}>
       <h2>{title}</h2>
-      <label>Child<select value={data.childId} onChange={e => setData({ ...data, childId: e.target.value })} required><option value="">Select child</option>{children.map((child: Child) => <option key={child.id} value={child.id}>{childName(children, child.id)}</option>)}</select></label>
-      <label>Vaccine<select value={data.vaccineId} onChange={e => setData({ ...data, vaccineId: e.target.value })} required><option value="">Select vaccine</option>{vaccines.map((vaccine: Vaccine) => <option key={vaccine.id} value={vaccine.id}>{vaccine.name}</option>)}</select></label>
-      <label>Dose<input value={data.doseName} onChange={e => setData({ ...data, doseName: e.target.value })} required /></label>
-      <label>Facility<select value={data.facilityId} onChange={e => setData({ ...data, facilityId: e.target.value })} required disabled={!!lockFacility}><option value="">Select facility</option>{facilities.map((facility: Facility) => <option key={facility.id} value={facility.id}>{facility.name}</option>)}</select></label>
+      <label>Child<select value={data.childId} onChange={e => setData({ ...data, childId: e.target.value })} required disabled={!!data.appointmentId}><option value="">Select child</option>{children.map((child: Child) => <option key={child.id} value={child.id}>{childName(children, child.id)}</option>)}</select></label>
+      <label>Vaccine<select value={data.vaccineId} onChange={e => setData({ ...data, vaccineId: e.target.value })} required disabled={!!data.appointmentId}><option value="">Select vaccine</option>{vaccines.filter((vaccine: Vaccine) => vaccine.isActive || vaccine.id === data.vaccineId).map((vaccine: Vaccine) => <option key={vaccine.id} value={vaccine.id}>{vaccine.name}</option>)}</select></label>
+      <label>Dose<input value={data.doseName} onChange={e => setData({ ...data, doseName: e.target.value })} required disabled={!!data.appointmentId} /></label>
+      <label>Facility<select value={data.facilityId} onChange={e => setData({ ...data, facilityId: e.target.value })} required disabled={!!lockFacility || !!data.appointmentId}><option value="">Select facility</option>{facilities.map((facility: Facility) => <option key={facility.id} value={facility.id}>{facility.name}</option>)}</select></label>
       <label>Date<input type="date" value={data[dateKey]} onChange={e => setData({ ...data, [dateKey]: e.target.value })} required /></label>
       {includeNotes && <label>Notes<textarea value={data.notes} onChange={e => setData({ ...data, notes: e.target.value })} /></label>}
       <button><Plus size={16} />{submit}</button>
@@ -1093,4 +1121,5 @@ function messageFrom(error: unknown) {
   return 'Request failed.';
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+const root = document.getElementById('root');
+if (root) createRoot(root).render(<App />);
