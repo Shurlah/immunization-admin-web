@@ -651,7 +651,7 @@ export function AppointmentsView({
   async function load() {
     try {
       const [appointmentData, childData, vaccineData, facilityData] = await Promise.all([fetchAppointments(), fetchChildren(), fetchVaccines(true), fetchFacilities()]);
-      setAppointments(appointmentData);
+      setAppointments(appointmentData.filter(appointment => !appointment.childDeleted));
       setChildren(childData);
       setVaccines(vaccineData);
       setFacilities(facilityData);

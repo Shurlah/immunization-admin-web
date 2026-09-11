@@ -53,14 +53,18 @@ describe('Appointment recording', () => {
   });
 });
 
-it('retains deleted child names in history without displaying internal IDs', async () => {
-  vi.mocked(api.fetchChildren).mockResolvedValue([]);
-  vi.mocked(api.fetchAppointments).mockResolvedValue([{ ...appointment, status: 'Completed', childName: 'Amara Okafor', childDeleted: true }]);
-  render(<AppointmentsView session={session} initialSection="status" onSectionChange={vi.fn()} />);
-  expect(await screen.findByText('Amara Okafor (Deleted)')).toBeTruthy();
-  expect(screen.queryByRole('cell', { name: 'child', exact: true })).toBeNull();
+it.each(['status', 'record'] as const)('hides deleted children from the %s screen while retaining active appointments', async (section) => {
+  vi.mocked(api.fetchAppointments).mockResolvedValue([
+    appointment,
+    { ...appointment, id: 'deleted-completed', childId: 'deleted-child', status: 'Completed', childName: 'Amara Okafor', childDeleted: true },
+    { ...appointment, id: 'deleted-scheduled', childId: 'deleted-child', childName: 'Amara Okafor', childDeleted: true }
+  ]);
+  render(<AppointmentsView session={session} initialSection={section} onSectionChange={vi.fn()} />);
+  expect(await screen.findByRole('cell', { name: 'Ada Test', exact: true })).toBeTruthy();
+  expect(screen.queryByText(/Amara Okafor/)).toBeNull();
+  expect(screen.queryByText(/\(Deleted\)/)).toBeNull();
+  expect(screen.queryByRole('cell', { name: 'deleted-child', exact: true })).toBeNull();
 });
-
 it('uses a readable fallback when a child cannot be resolved', async () => {
   vi.mocked(api.fetchChildren).mockResolvedValue([]);
   vi.mocked(api.fetchAppointments).mockResolvedValue([{ ...appointment, status: 'Completed' }]);
