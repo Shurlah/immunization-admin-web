@@ -52,3 +52,19 @@ describe('Appointment recording', () => {
     await waitFor(() => expect(api.recordImmunization).toHaveBeenCalledWith(expect.objectContaining({ appointmentId: null })));
   });
 });
+
+it('retains deleted child names in history without displaying internal IDs', async () => {
+  vi.mocked(api.fetchChildren).mockResolvedValue([]);
+  vi.mocked(api.fetchAppointments).mockResolvedValue([{ ...appointment, status: 'Completed', childName: 'Amara Okafor', childDeleted: true }]);
+  render(<AppointmentsView session={session} initialSection="status" onSectionChange={vi.fn()} />);
+  expect(await screen.findByText('Amara Okafor (Deleted)')).toBeTruthy();
+  expect(screen.queryByRole('cell', { name: 'child', exact: true })).toBeNull();
+});
+
+it('uses a readable fallback when a child cannot be resolved', async () => {
+  vi.mocked(api.fetchChildren).mockResolvedValue([]);
+  vi.mocked(api.fetchAppointments).mockResolvedValue([{ ...appointment, status: 'Completed' }]);
+  render(<AppointmentsView session={session} initialSection="status" onSectionChange={vi.fn()} />);
+  expect(await screen.findByText('Child unavailable')).toBeTruthy();
+  expect(screen.queryByRole('cell', { name: 'child', exact: true })).toBeNull();
+});

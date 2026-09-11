@@ -114,6 +114,8 @@ export type VaccineSchedule = {
 };
 
 export type Appointment = {
+  childName?: string | null;
+  childDeleted?: boolean;
   id: string;
   childId: string;
   vaccineId: string;

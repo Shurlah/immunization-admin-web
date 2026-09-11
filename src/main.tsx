@@ -725,7 +725,7 @@ export function AppointmentsView({
     return () => { cancelled = true; };
   }, [reviewChildId, appointments]);
   async function removeAppointment(appointment: Appointment) {
-    if (!window.confirm(`Delete this appointment for ${childName(children, appointment.childId)}?`)) return;
+    if (!window.confirm(`Delete this appointment for ${appointmentChildName(children, appointment)}?`)) return;
     try {
       await deleteAppointment(appointment.id);
       setNotice({ tone: 'ok', text: 'Appointment deleted.' });
@@ -774,7 +774,7 @@ export function AppointmentsView({
             </section>
             {reviewLoading && <p>Loading vaccine schedule...</p>}
             {reviewChildId && !reviewLoading && <DataTable title="Vaccine schedule review" columns={['Due date', 'Vaccine', 'Dose', 'Status', 'Review']} rows={dueVaccines.map(item => [item.dueDate, item.vaccineName, item.doseName, status(item.status), item.reviewReason ?? (item.status === 'DueToday' ? 'Contact staff to arrange today’s visit.' : '-')])} />}
-            <DataTable columns={['Date', 'Child', 'Vaccine', 'Dose', 'Status', 'Actions']} rows={filteredAppointments.map(item => [item.appointmentDate, childName(children, item.childId), vaccineName(vaccines, item.vaccineId), item.doseName, item.status.toLowerCase() === 'scheduled' ? <button type="button" className="secondary" onClick={() => openAppointment(item)} aria-label={`Record immunization for ${childName(children, item.childId)}, ${vaccineName(vaccines, item.vaccineId)}, ${item.doseName}`}>Scheduled</button> : status(item.status), item.status.toLowerCase() !== 'completed' ? <RowActions><button onClick={() => void removeAppointment(item)}>Delete</button></RowActions> : '-'])} />
+            <DataTable columns={['Date', 'Child', 'Vaccine', 'Dose', 'Status', 'Actions']} rows={filteredAppointments.map(item => [item.appointmentDate, appointmentChildName(children, item), vaccineName(vaccines, item.vaccineId), item.doseName, item.status.toLowerCase() === 'scheduled' ? <button type="button" className="secondary" onClick={() => openAppointment(item)} aria-label={`Record immunization for ${appointmentChildName(children, item)}, ${vaccineName(vaccines, item.vaccineId)}, ${item.doseName}`}>Scheduled</button> : status(item.status), item.status.toLowerCase() !== 'completed' ? <RowActions><button onClick={() => void removeAppointment(item)}>Delete</button></RowActions> : '-'])} />
           </section>
         )}
         {activeSection === 'record' && (
@@ -787,7 +787,7 @@ export function AppointmentsView({
                 <h2>Ready to record</h2>{immunization.appointmentId && <><p>Recording the selected appointment. Confirm the administration date before submitting.</p><button type="button" className="secondary" onClick={() => setImmunization({ ...immunization, appointmentId: '' })}>Enter a different immunization</button></>}
                 <p>Select a child, vaccine, and dose to record an immunization.</p>
               </section>
-              <DataTable title="Appointments awaiting outcome" columns={['Date', 'Child', 'Vaccine', 'Dose', 'Status']} rows={appointments.filter(item => ['scheduled', 'missed'].includes(item.status.toLowerCase())).map(item => [item.appointmentDate, childName(children, item.childId), vaccineName(vaccines, item.vaccineId), item.doseName, item.status.toLowerCase() === 'scheduled' ? <button type="button" className="secondary" onClick={() => openAppointment(item)} aria-label={`Record immunization for ${childName(children, item.childId)}, ${vaccineName(vaccines, item.vaccineId)}, ${item.doseName}`}>Scheduled</button> : status(item.status)])} />
+              <DataTable title="Appointments awaiting outcome" columns={['Date', 'Child', 'Vaccine', 'Dose', 'Status']} rows={appointments.filter(item => ['scheduled', 'missed'].includes(item.status.toLowerCase())).map(item => [item.appointmentDate, appointmentChildName(children, item), vaccineName(vaccines, item.vaccineId), item.doseName, item.status.toLowerCase() === 'scheduled' ? <button type="button" className="secondary" onClick={() => openAppointment(item)} aria-label={`Record immunization for ${appointmentChildName(children, item)}, ${vaccineName(vaccines, item.vaccineId)}, ${item.doseName}`}>Scheduled</button> : status(item.status)])} />
             </section>
           </>
         )}
@@ -1080,6 +1080,11 @@ function numberOrNull(value: string) {
   return value === '' ? null : Number(value);
 }
 
+function appointmentChildName(children: Child[], appointment: Appointment) {
+  const child = children.find(item => item.id === appointment.childId);
+  const name = appointment.childName?.trim() || (child ? `${child.firstName} ${child.lastName}`.trim() : 'Child unavailable');
+  return appointment.childDeleted ? `${name} (Deleted)` : name;
+}
 function childName(children: Child[], id: string) {
   const child = children.find(item => item.id === id);
   return child ? `${child.firstName} ${child.lastName}` : id;
